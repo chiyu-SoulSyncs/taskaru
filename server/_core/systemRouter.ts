@@ -21,6 +21,7 @@ export const systemRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      // TODO: Pass admin's linked LINE userId when available
       const delivered = await notifyOwner(input);
       return {
         success: delivered,
