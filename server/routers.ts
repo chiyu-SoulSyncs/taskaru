@@ -7,6 +7,7 @@ import { notesRouter } from "./routers/notes";
 import { foldersRouter } from "./routers/folders";
 import { projectsRouter } from "./routers/projects";
 import { kpisRouter } from "./routers/kpis";
+import { lineLinkingRouter } from "./routers/lineLinking";
 
 export const appRouter = router({
   system: systemRouter,
@@ -23,6 +24,7 @@ export const appRouter = router({
   folders: foldersRouter,
   projects: projectsRouter,
   kpis: kpisRouter,
+  lineLinking: lineLinkingRouter,
 });
 
 export type AppRouter = typeof appRouter;

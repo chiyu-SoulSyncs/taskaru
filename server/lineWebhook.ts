@@ -15,6 +15,9 @@ import {
   getAllProjects,
   createProject,
   moveTaskToProject,
+  verifyAndConsumeLinkingCode,
+  linkLineUserToAppUser,
+  getAppUserIdByLineUserId,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 import {
@@ -51,10 +54,16 @@ lineWebhookRouter.post("/webhook", async (req: Request, res: Response) => {
     try {
       await handleEvent(event);
     } catch (e) {
-      console.error("[LINE Webhook] Event handling error:", e);
+      console.error("[LINE Webhook] Event handling error:", e instanceof Error ? e.message : "unknown");
     }
   }
 });
+
+// ─── Helper: resolve appUserId for a LINE user ──────────────────────────────
+
+async function resolveAppUserId(lineUserId: string): Promise<number | null> {
+  return getAppUserIdByLineUserId(lineUserId);
+}
 
 // ─── Event Handler ────────────────────────────────────────────────────────────
 
@@ -70,6 +79,12 @@ async function handleEvent(event: LineWebhookEvent) {
 
   // Upsert LINE user
   await upsertLineUser(lineUserId);
+
+  // ─── Command: linking code (8-char alphanumeric) ─────────────────────────
+  if (/^[A-Z0-9]{8}$/i.test(text)) {
+    await handleLinkingCode(lineUserId, text.toUpperCase(), replyToken);
+    return;
+  }
 
   // ─── Command: done N ──────────────────────────────────────────────────────
   const doneMatch = text.match(/^done\s+(\d+)$/i);
@@ -119,6 +134,30 @@ async function handleEvent(event: LineWebhookEvent) {
 
   // ─── Task Extraction ──────────────────────────────────────────────────────
   await handleTaskExtraction(lineUserId, messageId, text, replyToken);
+}
+
+// ─── Linking Code Handler ────────────────────────────────────────────────────
+
+async function handleLinkingCode(lineUserId: string, code: string, replyToken: string) {
+  const appUserId = await verifyAndConsumeLinkingCode(code);
+
+  if (!appUserId) {
+    // Don't reveal whether code existed or expired (security)
+    // Silently ignore - could be a normal 8-char message
+    // Fall through to task extraction instead
+    return;
+  }
+
+  // Link the LINE user to the web user
+  await linkLineUserToAppUser(lineUserId, appUserId);
+
+  await replyMessage(replyToken, [
+    buildTextMessage(
+      "🔗 アカウント連携が完了しました！\n\n" +
+      "これ以降、LINEから送ったタスクやメモはWebアプリに自動で表示されます。\n\n" +
+      "過去に送ったタスクも同期されました。"
+    ),
+  ]);
 }
 
 // ─── Command Handlers ─────────────────────────────────────────────────────────
@@ -238,6 +277,8 @@ async function handleMemoCommand(lineUserId: string, text: string, replyToken: s
   }
 
   try {
+    const appUserId = await resolveAppUserId(lineUserId);
+
     // AI format the note
     const response = await invokeLLM({
       messages: [
@@ -296,7 +337,7 @@ async function handleMemoCommand(lineUserId: string, text: string, replyToken: s
       taskCandidates: { title: string; priority: string; category: string }[];
     };
 
-    // Save note with task candidates (candidates are NOT auto-created; user confirms in web app)
+    // Save note with appUserId for user isolation
     await createNote({
       title: formatted.title,
       rawText,
@@ -305,6 +346,7 @@ async function handleMemoCommand(lineUserId: string, text: string, replyToken: s
       extractedTaskIds: [],
       taskCandidates: formatted.taskCandidates,
       sourceLineUserId: lineUserId,
+      appUserId,
     });
 
     // Reply summary
@@ -321,7 +363,7 @@ async function handleMemoCommand(lineUserId: string, text: string, replyToken: s
       ),
     ]);
   } catch (e) {
-    console.error("[LINE Webhook] Memo handling error:", e);
+    console.error("[LINE Webhook] Memo handling error:", e instanceof Error ? e.message : "unknown");
     await replyMessage(replyToken, [
       buildTextMessage("❌ メモの保存に失敗しました。もう一度お試しください。"),
     ]);
@@ -367,8 +409,10 @@ async function handleProjectTaskCommand(
   replyToken: string
 ) {
   try {
-    // Find matching project by name (case-insensitive partial match)
-    const allProjects = await getAllProjects();
+    const appUserId = await resolveAppUserId(lineUserId);
+
+    // Find matching project by name (scoped to user if linked)
+    const allProjects = await getAllProjects(appUserId ?? undefined);
     let project = allProjects.find(
       (p) => p.title.toLowerCase().includes(projectName.toLowerCase()) ||
              projectName.toLowerCase().includes(p.title.toLowerCase())
@@ -376,7 +420,11 @@ async function handleProjectTaskCommand(
 
     // Auto-create project if not found
     if (!project) {
-      project = await createProject({ title: projectName, status: "active" }) ?? undefined;
+      project = await createProject({
+        title: projectName,
+        status: "active",
+        appUserId,
+      }) ?? undefined;
     }
 
     if (!project) {
@@ -388,6 +436,7 @@ async function handleProjectTaskCommand(
     const task = await createTask({
       title: taskText.slice(0, 200),
       lineUserId,
+      appUserId,
       priority: "P2",
       category: project.title,
     });
@@ -402,7 +451,7 @@ async function handleProjectTaskCommand(
       ),
     ]);
   } catch (e) {
-    console.error("[LINE Webhook] Project task command error:", e);
+    console.error("[LINE Webhook] Project task command error:", e instanceof Error ? e.message : "unknown");
     await replyMessage(replyToken, [buildTextMessage("\u274c タスクの登録に失敗しました")]);
   }
 }
@@ -419,6 +468,8 @@ async function handleTaskExtraction(
     console.log(`[LINE Webhook] Duplicate message ${messageId}, skipping`);
     return;
   }
+
+  const appUserId = await resolveAppUserId(lineUserId);
 
   // Get current JST time
   const nowJST = new Date().toLocaleString("ja-JP", {
@@ -441,9 +492,10 @@ async function handleTaskExtraction(
     return;
   }
 
-  // Insert tasks to DB
+  // Insert tasks to DB with appUserId for user isolation
   const insertData = extracted.map((t) => ({
     lineUserId,
+    appUserId,
     title: t.title,
     note: t.note || null,
     status: "todo" as const,

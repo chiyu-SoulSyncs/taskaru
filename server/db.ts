@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull, like, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import crypto from "crypto";
 import {
   InsertTask,
   InsertUser,
@@ -7,6 +8,7 @@ import {
   InsertNote,
   InsertKpi,
   lineUsers,
+  lineLinkingCodes,
   messages,
   replyContexts,
   tasks,
@@ -684,6 +686,146 @@ export async function deleteKpi(id: number) {
   const db = await getDb();
   if (!db) return;
   await db.delete(kpis).where(eq(kpis.id, id));
+}
+
+// ─── LINE Linking Codes ──────────────────────────────────────────────────────
+
+const LINKING_CODE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Generate a cryptographically random 8-character alphanumeric code */
+function generateLinkingCode(): string {
+  // Use crypto.randomBytes for security (not Math.random)
+  const bytes = crypto.randomBytes(6);
+  // Base64url-safe, take first 8 chars
+  return bytes.toString("base64url").slice(0, 8).toUpperCase();
+}
+
+/**
+ * Create a linking code for a web user. Deletes any existing code for the user first.
+ * Returns the code string.
+ */
+export async function createLinkingCode(appUserId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  // Delete any existing codes for this user (one active code at a time)
+  await db.delete(lineLinkingCodes).where(eq(lineLinkingCodes.appUserId, appUserId));
+
+  // Also clean up all expired codes
+  await db.delete(lineLinkingCodes).where(sql`${lineLinkingCodes.expiresAt} < NOW()`);
+
+  const code = generateLinkingCode();
+  const expiresAt = new Date(Date.now() + LINKING_CODE_EXPIRY_MS);
+
+  await db.insert(lineLinkingCodes).values({
+    appUserId,
+    code,
+    expiresAt,
+  });
+
+  return code;
+}
+
+/**
+ * Verify a linking code and return the appUserId if valid.
+ * Deletes the code after use (one-time use).
+ */
+export async function verifyAndConsumeLinkingCode(code: string): Promise<number | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db
+    .select()
+    .from(lineLinkingCodes)
+    .where(and(
+      eq(lineLinkingCodes.code, code.toUpperCase()),
+      sql`${lineLinkingCodes.expiresAt} > NOW()`
+    ))
+    .limit(1);
+
+  const row = result[0];
+  if (!row) return null;
+
+  // Delete the code immediately (one-time use, prevents replay attacks)
+  await db.delete(lineLinkingCodes).where(eq(lineLinkingCodes.id, row.id));
+
+  return row.appUserId;
+}
+
+/**
+ * Link a LINE user to a web user and backfill existing data.
+ */
+export async function linkLineUserToAppUser(lineUserId: string, appUserId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  // Update the line_users table
+  await db
+    .update(lineUsers)
+    .set({ appUserId })
+    .where(eq(lineUsers.lineUserId, lineUserId));
+
+  // Backfill: set appUserId on existing tasks created by this LINE user
+  await db
+    .update(tasks)
+    .set({ appUserId })
+    .where(and(eq(tasks.lineUserId, lineUserId), isNull(tasks.appUserId)));
+
+  // Backfill: set appUserId on existing notes created by this LINE user
+  await db
+    .update(notes)
+    .set({ appUserId })
+    .where(and(eq(notes.sourceLineUserId, lineUserId), isNull(notes.appUserId)));
+}
+
+/**
+ * Get the appUserId for a given lineUserId (returns null if not linked).
+ */
+export async function getAppUserIdByLineUserId(lineUserId: string): Promise<number | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db
+    .select({ appUserId: lineUsers.appUserId })
+    .from(lineUsers)
+    .where(eq(lineUsers.lineUserId, lineUserId))
+    .limit(1);
+  return result[0]?.appUserId ?? null;
+}
+
+/**
+ * Unlink a LINE user from a web user.
+ */
+export async function unlinkLineUser(lineUserId: string, appUserId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+
+  // Only unlink if the lineUser belongs to this appUser
+  const lineUser = await db
+    .select()
+    .from(lineUsers)
+    .where(and(eq(lineUsers.lineUserId, lineUserId), eq(lineUsers.appUserId, appUserId)))
+    .limit(1);
+
+  if (!lineUser[0]) return false;
+
+  await db
+    .update(lineUsers)
+    .set({ appUserId: null })
+    .where(eq(lineUsers.lineUserId, lineUserId));
+
+  return true;
+}
+
+/**
+ * Get linked LINE users for a given appUserId.
+ */
+export async function getLinkedLineUsers(appUserId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(lineUsers)
+    .where(eq(lineUsers.appUserId, appUserId));
 }
 
 // ─── App Settings (KV store) ──────────────────────────────────────────────────

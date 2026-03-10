@@ -172,6 +172,19 @@ export type Kpi = typeof kpis.$inferSelect;
 export type InsertKpi = typeof kpis.$inferInsert;
 
 /**
+ * LINE linking codes: temporary codes for linking LINE accounts to web users
+ */
+export const lineLinkingCodes = mysqlTable("line_linking_codes", {
+  id: int("id").autoincrement().primaryKey(),
+  appUserId: int("appUserId").notNull(),
+  code: varchar("code", { length: 16 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type LineLinkingCode = typeof lineLinkingCodes.$inferSelect;
+
+/**
  * App settings: key-value store for application-level configuration
  */
 export const appSettings = mysqlTable("app_settings", {
