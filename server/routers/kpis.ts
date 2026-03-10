@@ -1,12 +1,24 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
-import { getKpisByProject, createKpi, updateKpi, deleteKpi } from "../db";
+import { getKpisByProject, getProjectById, createKpi, updateKpi, deleteKpi } from "../db";
 import { invokeLLM } from "../_core/llm";
+
+/** Verify the project belongs to the requesting user */
+async function verifyProjectOwnership(projectId: number, userId: number) {
+  const project = await getProjectById(projectId);
+  if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+  if (project.appUserId !== null && project.appUserId !== userId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+  }
+  return project;
+}
 
 export const kpisRouter = router({
   listByProject: protectedProcedure
     .input(z.object({ projectId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      await verifyProjectOwnership(input.projectId, ctx.user.id);
       return getKpisByProject(input.projectId);
     }),
 
@@ -22,7 +34,8 @@ export const kpisRouter = router({
         note: z.string().nullable().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await verifyProjectOwnership(input.projectId, ctx.user.id);
       return createKpi({
         projectId: input.projectId,
         title: input.title,
@@ -156,10 +169,11 @@ export const kpisRouter = router({
             dueDate: z.string().nullable().optional(),
             note: z.string().nullable().optional(),
           })
-        ),
+        ).max(20),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await verifyProjectOwnership(input.projectId, ctx.user.id);
       const created = await Promise.all(
         input.kpis.map((kpi) =>
           createKpi({

@@ -487,8 +487,8 @@ function SortableTaskCard({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Tasks() {
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("active"); // default: hide done
-  const [filterPriority, setFilterPriority] = useState("all");
+  const [filterStatus, setFilterStatus] = useState<"active" | "all" | "todo" | "doing" | "done">("active");
+  const [filterPriority, setFilterPriority] = useState<"all" | "P1" | "P2" | "P3">("all");
   const [filterCategory, setFilterCategory] = useState("all");
   const [showFilter, setShowFilter] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -517,7 +517,7 @@ export default function Tasks() {
 
   const { data: rawTasks = [], isLoading, refetch } = trpc.tasks.list.useQuery(
     {
-      status: filterStatus === "active" ? undefined : filterStatus === "all" ? "all" : filterStatus,
+      status: filterStatus === "active" ? undefined : filterStatus === "all" ? undefined : filterStatus as "todo" | "doing" | "done",
       priority: filterPriority !== "all" ? filterPriority : undefined,
       category: filterCategory !== "all" ? filterCategory : undefined,
       search: search || undefined,
@@ -927,7 +927,7 @@ export default function Tasks() {
                 <select
                   className="w-full px-2 py-1.5 rounded-lg text-xs border border-slate-200 bg-white/70 text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-300"
                   value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
+                  onChange={(e) => setFilterStatus(e.target.value as "active" | "all" | "todo" | "doing" | "done")}
                 >
                   <option value="active">未完了のみ</option>
                   <option value="all">すべて</option>
@@ -941,7 +941,7 @@ export default function Tasks() {
                 <select
                   className="w-full px-2 py-1.5 rounded-lg text-xs border border-slate-200 bg-white/70 text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-300"
                   value={filterPriority}
-                  onChange={(e) => setFilterPriority(e.target.value)}
+                  onChange={(e) => setFilterPriority(e.target.value as "all" | "P1" | "P2" | "P3")}
                 >
                   <option value="all">すべて</option>
                   <option value="P1">緊急</option>

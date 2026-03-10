@@ -1,9 +1,4 @@
 import { and, desc, eq, isNull, like, ne, or, sql } from "drizzle-orm";
-
-/** Escape SQL LIKE wildcards to prevent pattern injection */
-function escapeLikePattern(input: string): string {
-  return input.replace(/[%_\\]/g, "\\$&");
-}
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertTask,
@@ -36,6 +31,11 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+/** Escape SQL LIKE wildcards to prevent pattern injection */
+function escapeLikePattern(input: string): string {
+  return input.replace(/[%_\\]/g, "\\$&");
 }
 
 // ─── Users ───────────────────────────────────────────────────────────────────
@@ -263,17 +263,26 @@ export async function getTasksByLineUser(
   return query;
 }
 
+/**
+ * Get all tasks for a specific user. If no userId is provided, returns all tasks (admin use only).
+ */
 export async function getAllTasks(opts?: {
   status?: string;
   priority?: string;
   category?: string;
   search?: string;
   dueDateFilter?: string;
+  userId?: number;
 }) {
   const db = await getDb();
   if (!db) return [];
 
   const conditions: ReturnType<typeof eq>[] = [];
+
+  // User isolation: filter by appUserId
+  if (opts?.userId) {
+    conditions.push(eq(tasks.appUserId, opts.userId));
+  }
 
   if (opts?.status && opts.status !== "all") {
     conditions.push(eq(tasks.status, opts.status as "todo" | "doing" | "done"));
@@ -416,18 +425,33 @@ export async function getLatestReplyContext(lineUserId: string) {
   return result[0];
 }
 
-// ─── Folders ──────────────────────────────────────────────────────────────────
+// ─── Folders (user-scoped) ───────────────────────────────────────────────────
 
-export async function getAllFolders() {
+export async function getAllFolders(userId?: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(folders).orderBy(folders.sortOrder, folders.createdAt);
+  const conditions = userId ? [eq(folders.appUserId, userId)] : [];
+  return db
+    .select()
+    .from(folders)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(folders.sortOrder, folders.createdAt);
 }
 
-export async function createFolder(data: InsertFolder) {
+export async function getFolderById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(folders).where(eq(folders.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createFolder(data: InsertFolder & { appUserId?: number | null }) {
   const db = await getDb();
   if (!db) return null;
-  const result = await db.insert(folders).values(data);
+  const result = await db.insert(folders).values({
+    ...data,
+    appUserId: data.appUserId ?? null,
+  });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const insertId = (result as any)[0]?.insertId;
   if (!insertId) return null;
@@ -459,12 +483,17 @@ export async function moveTaskToFolder(taskId: number, folderId: number | null) 
   await db.update(tasks).set({ folderId }).where(eq(tasks.id, taskId));
 }
 
-// ─── Notes ────────────────────────────────────────────────────────────────────
+// ─── Notes (user-scoped) ─────────────────────────────────────────────────────
 
-export async function getAllNotes() {
+export async function getAllNotes(userId?: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(notes).orderBy(desc(notes.createdAt));
+  const conditions = userId ? [eq(notes.appUserId, userId)] : [];
+  return db
+    .select()
+    .from(notes)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(notes.createdAt));
 }
 
 export async function getNoteById(id: number) {
@@ -474,10 +503,13 @@ export async function getNoteById(id: number) {
   return result[0];
 }
 
-export async function createNote(data: InsertNote) {
+export async function createNote(data: InsertNote & { appUserId?: number | null }) {
   const db = await getDb();
   if (!db) return null;
-  const result = await db.insert(notes).values(data);
+  const result = await db.insert(notes).values({
+    ...data,
+    appUserId: data.appUserId ?? null,
+  });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const insertId = (result as any)[0]?.insertId;
   if (!insertId) return null;
@@ -500,12 +532,17 @@ export async function deleteNote(id: number) {
   await db.delete(notes).where(eq(notes.id, id));
 }
 
-// ─── Projects ─────────────────────────────────────────────────────────────────
+// ─── Projects (user-scoped) ──────────────────────────────────────────────────
 
-export async function getAllProjects() {
+export async function getAllProjects(userId?: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(projects).orderBy(projects.sortOrder, projects.createdAt);
+  const conditions = userId ? [eq(projects.appUserId, userId)] : [];
+  return db
+    .select()
+    .from(projects)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(projects.sortOrder, projects.createdAt);
 }
 
 export async function getProjectById(id: number) {
@@ -522,6 +559,7 @@ export async function createProject(data: {
   color?: string;
   dueDate?: Date | null;
   sortOrder?: number;
+  appUserId?: number | null;
 }) {
   const db = await getDb();
   if (!db) return null;
@@ -532,6 +570,7 @@ export async function createProject(data: {
     color: data.color ?? "violet",
     dueDate: data.dueDate ?? null,
     sortOrder: data.sortOrder ?? 0,
+    appUserId: data.appUserId ?? null,
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const insertId = (result as any)[0]?.insertId;

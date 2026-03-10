@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
   getAllProjects,
@@ -16,8 +17,8 @@ import {
 import { invokeLLM } from "../_core/llm";
 
 export const projectsRouter = router({
-  list: protectedProcedure.query(async () => {
-    const allProjects = await getAllProjects();
+  list: protectedProcedure.query(async ({ ctx }) => {
+    const allProjects = await getAllProjects(ctx.user.id);
     // Attach progress to each project
     const withProgress = await Promise.all(
       allProjects.map(async (project) => {
@@ -30,9 +31,12 @@ export const projectsRouter = router({
 
   getById: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.id);
       if (!project) return null;
+      if (project.appUserId !== null && project.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       const progress = await getProjectProgress(project.id);
       const projectTasks = await getTasksByProject(project.id);
       const projectNotes = await getNotesByProject(project.id);
@@ -49,13 +53,14 @@ export const projectsRouter = router({
         dueDate: z.date().optional().nullable(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       return createProject({
         title: input.title,
         description: input.description ?? null,
         status: input.status ?? "active",
         color: input.color ?? "violet",
         dueDate: input.dueDate ?? null,
+        appUserId: ctx.user.id,
       });
     }),
 
@@ -70,15 +75,25 @@ export const projectsRouter = router({
         dueDate: z.date().nullable().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
+      const project = await getProjectById(id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      if (project.appUserId !== null && project.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       await updateProject(id, data);
       return getProjectById(id);
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const project = await getProjectById(input.id);
+      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      if (project.appUserId !== null && project.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       await deleteProject(input.id);
       return { success: true };
     }),
@@ -260,7 +275,7 @@ export const projectsRouter = router({
         ).max(30),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       // 1. プロジェクトを作成してIDを記録
       const projectIds: number[] = [];
       for (const p of input.projects) {
@@ -270,6 +285,7 @@ export const projectsRouter = router({
           status: (p.status as "active" | "completed" | "on_hold") ?? "active",
           color: p.color ?? "violet",
           dueDate: null,
+          appUserId: ctx.user.id,
         });
         projectIds.push(project?.id ?? 0);
       }
@@ -285,6 +301,7 @@ export const projectsRouter = router({
           category: t.category ?? "その他",
           dueDate,
           lineUserId: "web",
+          appUserId: ctx.user.id,
         });
         if (task && projectId) {
           const { updateTask } = await import("../db");

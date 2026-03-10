@@ -13,6 +13,11 @@ export type SessionPayload = {
   name: string;
 };
 
+export type AuthResult = {
+  user: User;
+  issuedAt: number | null;
+};
+
 class AuthService {
   private parseCookies(cookieHeader: string | undefined) {
     if (!cookieHeader) return new Map<string, string>();
@@ -31,6 +36,7 @@ class AuthService {
     const issuedAt = Date.now();
     const expiresInMs = options.expiresInMs ?? SESSION_MAX_AGE_MS;
     const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
+    const issuedAtSeconds = Math.floor(issuedAt / 1000);
     const secretKey = this.getSessionSecret();
 
     return new SignJWT({
@@ -39,13 +45,14 @@ class AuthService {
       name: payload.name,
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setIssuedAt(issuedAtSeconds)
       .setExpirationTime(expirationSeconds)
       .sign(secretKey);
   }
 
   async verifySession(
     cookieValue: string | undefined | null
-  ): Promise<SessionPayload | null> {
+  ): Promise<(SessionPayload & { issuedAt: number | null }) | null> {
     if (!cookieValue) return null;
 
     try {
@@ -54,21 +61,22 @@ class AuthService {
         algorithms: ["HS256"],
       });
 
-      const { userId, openId, name } = payload as Record<string, unknown>;
+      const { userId, openId, name, iat } = payload as Record<string, unknown>;
 
       if (typeof userId !== "number" || typeof openId !== "string" || typeof name !== "string") {
         console.warn("[Auth] Session payload missing required fields");
         return null;
       }
 
-      return { userId, openId, name };
+      const issuedAt = typeof iat === "number" ? iat * 1000 : null;
+      return { userId, openId, name, issuedAt };
     } catch (error) {
       console.warn("[Auth] Session verification failed", String(error));
       return null;
     }
   }
 
-  async authenticateRequest(req: Request): Promise<User> {
+  async authenticateRequest(req: Request): Promise<AuthResult> {
     const cookies = this.parseCookies(req.headers.cookie);
     const sessionCookie = cookies.get(COOKIE_NAME);
     const session = await this.verifySession(sessionCookie);
@@ -88,7 +96,7 @@ class AuthService {
       lastSignedIn: new Date(),
     });
 
-    return user;
+    return { user, issuedAt: session.issuedAt };
   }
 }
 

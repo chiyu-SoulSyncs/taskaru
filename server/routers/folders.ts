@@ -1,6 +1,8 @@
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
   getAllFolders,
+  getFolderById,
   createFolder,
   updateFolder,
   deleteFolder,
@@ -9,9 +11,9 @@ import {
 import { z } from "zod";
 
 export const foldersRouter = router({
-  // List all folders
-  list: protectedProcedure.query(async () => {
-    return getAllFolders();
+  // List all folders (user-scoped)
+  list: protectedProcedure.query(async ({ ctx }) => {
+    return getAllFolders(ctx.user.id);
   }),
 
   // Create folder
@@ -23,12 +25,13 @@ export const foldersRouter = router({
         icon: z.string().max(32).optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       return createFolder({
         name: input.name,
         color: input.color ?? "violet",
         icon: input.icon ?? "folder",
         sortOrder: 0,
+        appUserId: ctx.user.id,
       });
     }),
 
@@ -43,17 +46,27 @@ export const foldersRouter = router({
         sortOrder: z.number().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
+      const folder = await getFolderById(id);
+      if (!folder) throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
+      if (folder.appUserId !== null && folder.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       await updateFolder(id, data);
-      const all = await getAllFolders();
+      const all = await getAllFolders(ctx.user.id);
       return all.find((f) => f.id === id) ?? null;
     }),
 
   // Delete folder (unlinks tasks)
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const folder = await getFolderById(input.id);
+      if (!folder) throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
+      if (folder.appUserId !== null && folder.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       await deleteFolder(input.id);
       return { success: true };
     }),

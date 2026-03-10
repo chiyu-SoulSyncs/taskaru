@@ -88,6 +88,7 @@ export type InsertTask = typeof tasks.$inferInsert;
  */
 export const folders = mysqlTable("folders", {
   id: int("id").autoincrement().primaryKey(),
+  appUserId: int("appUserId"),
   name: varchar("name", { length: 64 }).notNull(),
   color: varchar("color", { length: 32 }).default("violet").notNull(),
   icon: varchar("icon", { length: 32 }).default("folder").notNull(),
@@ -104,6 +105,7 @@ export type InsertFolder = typeof folders.$inferInsert;
  */
 export const projects = mysqlTable("projects", {
   id: int("id").autoincrement().primaryKey(),
+  appUserId: int("appUserId"),
   title: varchar("title", { length: 128 }).notNull(),
   description: text("description"),
   status: mysqlEnum("status", ["active", "completed", "on_hold"]).default("active").notNull(),
@@ -122,6 +124,7 @@ export type InsertProject = typeof projects.$inferInsert;
  */
 export const notes = mysqlTable("notes", {
   id: int("id").autoincrement().primaryKey(),
+  appUserId: int("appUserId"),
   title: varchar("title", { length: 256 }).notNull(),
   rawText: text("rawText").notNull(),
   formattedText: text("formattedText").notNull(),

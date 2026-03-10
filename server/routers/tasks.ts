@@ -15,6 +15,7 @@ import {
   bulkMoveTasksToFolder,
   getSubTasksByParent,
   getAllTasksByProject,
+  getProjectById,
 } from "../db";
 import { sendMorningReminders } from "../scheduler";
 import { z } from "zod";
@@ -31,30 +32,43 @@ export const tasksRouter = router({
         dueDateFilter: z.string().max(20).optional(),
       })
     )
-    .query(async ({ input }) => {
-      return getAllTasks(input);
+    .query(async ({ ctx, input }) => {
+      return getAllTasks({ ...input, userId: ctx.user.id });
     }),
 
   // ─── Task by ID ────────────────────────────────────────────────────────────
   byId: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const task = await getTaskById(input.id);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      if (task.appUserId !== null && task.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       return task;
     }),
 
   // ─── Sub-tasks by parent ───────────────────────────────────────────────────
   subTasks: protectedProcedure
     .input(z.object({ parentTaskId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Verify parent task belongs to user
+      const parent = await getTaskById(input.parentTaskId);
+      if (parent && parent.appUserId !== null && parent.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       return getSubTasksByParent(input.parentTaskId);
     }),
 
   // ─── All tasks in a project (parent + children) ───────────────────────────
   allByProject: protectedProcedure
     .input(z.object({ projectId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Verify project belongs to user
+      const project = await getProjectById(input.projectId);
+      if (project && project.appUserId !== null && project.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       return getAllTasksByProject(input.projectId);
     }),
 
@@ -72,10 +86,13 @@ export const tasksRouter = router({
         parentTaskId: z.number().nullable().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { id, dueDate, ...rest } = input;
       const existing = await getTaskById(id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      if (existing.appUserId !== null && existing.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       const updateData: Parameters<typeof updateTask>[1] = { ...rest };
       if (dueDate !== undefined) {
         updateData.dueDate = dueDate ? new Date(dueDate) : null;
@@ -87,9 +104,12 @@ export const tasksRouter = router({
   // ─── Toggle Complete ───────────────────────────────────────────────────────
   toggleComplete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const task = await getTaskById(input.id);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      if (task.appUserId !== null && task.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       const newStatus = task.status === "done" ? "todo" : "done";
       await updateTask(input.id, { status: newStatus });
       return getTaskById(input.id);
@@ -98,9 +118,12 @@ export const tasksRouter = router({
   // ─── Delete Task ───────────────────────────────────────────────────────────
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const task = await getTaskById(input.id);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      if (task.appUserId !== null && task.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       const subTasks = await getSubTasksByParent(input.id);
       if (subTasks.length > 0) {
         await deleteTasks(subTasks.map((t) => t.id));
@@ -112,7 +135,14 @@ export const tasksRouter = router({
   // ─── Delete Multiple Tasks ─────────────────────────────────────────────────
   deleteMany: protectedProcedure
     .input(z.object({ ids: z.array(z.number()).max(100) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Verify all tasks belong to user before deleting
+      for (const id of input.ids) {
+        const task = await getTaskById(id);
+        if (task && task.appUserId !== null && task.appUserId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+        }
+      }
       await deleteTasks(input.ids);
       return { success: true, count: input.ids.length };
     }),
@@ -134,9 +164,12 @@ export const tasksRouter = router({
         repeatDays: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const task = await getTaskById(input.id);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      if (task.appUserId !== null && task.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       await updateTask(input.id, {
         repeatType: input.repeatType,
         repeatDays: input.repeatDays ?? null,
@@ -185,7 +218,7 @@ export const tasksRouter = router({
         sortOrder: z.number().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const dueDate = input.dueDate ? new Date(input.dueDate) : null;
       const task = await createTask({
         title: input.title,
@@ -196,6 +229,7 @@ export const tasksRouter = router({
         repeatType: input.repeatType,
         repeatDays: input.repeatDays ?? null,
         lineUserId: "web",
+        appUserId: ctx.user.id,
         projectId: input.projectId ?? null,
         parentTaskId: input.parentTaskId ?? null,
         sortOrder: input.sortOrder ?? 0,
@@ -221,8 +255,8 @@ export const tasksRouter = router({
     }),
 
   // ─── Stats ─────────────────────────────────────────────────────────────────
-  stats: protectedProcedure.query(async () => {
-    const all = await getAllTasks();
+  stats: protectedProcedure.query(async ({ ctx }) => {
+    const all = await getAllTasks({ userId: ctx.user.id });
     const total = all.length;
     const done = all.filter((t) => t.status === "done").length;
     const todo = all.filter((t) => t.status === "todo").length;

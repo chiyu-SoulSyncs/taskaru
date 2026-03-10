@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
 import {
@@ -79,16 +80,21 @@ taskCandidatesは「〜する必要がある」「〜に連絡する」「〜を
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 export const notesRouter = router({
-  // List all notes
-  list: protectedProcedure.query(async () => {
-    return getAllNotes();
+  // List all notes (user-scoped)
+  list: protectedProcedure.query(async ({ ctx }) => {
+    return getAllNotes(ctx.user.id);
   }),
 
   // Get note by ID
   byId: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return getNoteById(input.id);
+    .query(async ({ ctx, input }) => {
+      const note = await getNoteById(input.id);
+      if (!note) throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
+      if (note.appUserId !== null && note.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
+      return note;
     }),
 
   // Preview: AI-format without saving
@@ -104,11 +110,11 @@ export const notesRouter = router({
     .input(
       z.object({
         rawText: z.string().min(1).max(20000),
-        selectedTaskIndices: z.array(z.number()).max(30).optional(), // indices from taskCandidates to create as tasks
+        selectedTaskIndices: z.array(z.number()).max(30).optional(),
         sourceLineUserId: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       // AI format
       const formatted = await formatNoteWithAI(input.rawText);
 
@@ -123,6 +129,7 @@ export const notesRouter = router({
             priority: candidate.priority as "P1" | "P2" | "P3",
             category: candidate.category,
             lineUserId: input.sourceLineUserId ?? "web",
+            appUserId: ctx.user.id,
           });
           if (task) createdTaskIds.push(task.id);
         }
@@ -140,6 +147,7 @@ export const notesRouter = router({
         extractedTaskIds: createdTaskIds,
         taskCandidates: remainingCandidates,
         sourceLineUserId: input.sourceLineUserId ?? null,
+        appUserId: ctx.user.id,
       });
 
       return { note, createdTaskIds, taskCandidates: formatted.taskCandidates };
@@ -155,8 +163,13 @@ export const notesRouter = router({
         tags: z.array(z.string().max(50)).max(20).optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
+      const note = await getNoteById(id);
+      if (!note) throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
+      if (note.appUserId !== null && note.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       await updateNote(id, data);
       return getNoteById(id);
     }),
@@ -164,7 +177,12 @@ export const notesRouter = router({
   // Delete note
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const note = await getNoteById(input.id);
+      if (!note) throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
+      if (note.appUserId !== null && note.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
       await deleteNote(input.id);
       return { success: true };
     }),
@@ -182,13 +200,21 @@ export const notesRouter = router({
         projectId: z.number().nullable().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Verify note belongs to user
+      const noteCheck = await getNoteById(input.noteId);
+      if (!noteCheck) throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
+      if (noteCheck.appUserId !== null && noteCheck.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
+
       // Create the task
       const task = await createTask({
         title: input.title,
         priority: input.priority,
         category: input.category,
         lineUserId: "web",
+        appUserId: ctx.user.id,
       });
       if (!task) throw new Error("Task creation failed");
 
