@@ -18,13 +18,13 @@ Phase 1 (Manus除去)        ← 最初にやる、他に影響なし
 
 ## Phase 1: Manus固有コードの除去（リスク低）
 
-- [ ] **1.1** `vite.config.ts`: `vite-plugin-manus-runtime` と `vitePluginManusDebugCollector` 関数を削除、`allowedHosts` を `localhost` + `127.0.0.1` のみに
-- [ ] **1.2** `package.json`: `vite-plugin-manus-runtime` を devDependencies から削除
-- [ ] **1.3** `client/public/__manus__/` ディレクトリごと削除
-- [ ] **1.4** `server/_core/dataApi.ts`: 削除（Manus `CallApi` 依存、未使用）
-- [ ] **1.5** `server/_core/notification.ts`: Manus `SendNotification` 依存 → LINE push通知 or ログ出力に書き換え
-- [ ] **1.6** `server/_core/systemRouter.ts`: `notifyOwner` を新しい通知方式に更新
-- [ ] **1.7** `.env.example` を作成（全環境変数を文書化）
+- [x] **1.1** `vite.config.ts`: `vite-plugin-manus-runtime` と `vitePluginManusDebugCollector` 関数を削除、`allowedHosts` を `localhost` + `127.0.0.1` のみに
+- [x] **1.2** `package.json`: `vite-plugin-manus-runtime` を devDependencies から削除
+- [x] **1.3** `client/public/__manus__/` ディレクトリごと削除
+- [x] **1.4** `server/_core/dataApi.ts`: 削除（Manus `CallApi` 依存、未使用）
+- [x] **1.5** `server/_core/notification.ts`: Manus `SendNotification` 依存 → LINE push通知 or ログ出力に書き換え
+- [x] **1.6** `server/_core/systemRouter.ts`: `notifyOwner` を新しい通知方式に更新
+- [x] **1.7** `.env.example` を作成（全環境変数を文書化）
 
 ---
 
