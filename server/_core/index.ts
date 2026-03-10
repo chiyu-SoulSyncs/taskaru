@@ -28,25 +28,61 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
-// ─── Simple rate limiter ──────────────────────────────────────────────────────
+// ─── Rate limiter with sliding window + periodic cleanup ─────────────────────
+// Stores per-IP timestamps of requests for accurate sliding window counting.
+// Memory is bounded: cleanup runs every 60s removing expired entries,
+// and a global IP limit (10,000) prevents memory exhaustion from many unique IPs.
+const RATE_LIMIT_MAX_IPS = 10_000;
+
 function createRateLimiter(windowMs: number, maxRequests: number) {
-  const hits = new Map<string, { count: number; resetAt: number }>();
+  const hits = new Map<string, number[]>(); // IP -> array of request timestamps
+
+  // Periodic cleanup: remove expired entries every 60 seconds
+  const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    const keys = Array.from(hits.keys());
+    keys.forEach((key) => {
+      const timestamps = hits.get(key);
+      if (!timestamps) return;
+      const valid = timestamps.filter((t: number) => t > now - windowMs);
+      if (valid.length === 0) {
+        hits.delete(key);
+      } else {
+        hits.set(key, valid);
+      }
+    });
+  }, 60_000);
+  cleanupInterval.unref(); // Don't prevent process exit
 
   return (req: Request, res: Response, next: NextFunction) => {
     const key = req.ip || req.socket.remoteAddress || "unknown";
     const now = Date.now();
-    const record = hits.get(key);
 
-    if (!record || now > record.resetAt) {
-      hits.set(key, { count: 1, resetAt: now + windowMs });
-      return next();
-    }
+    // Get existing timestamps and filter to current window
+    const existing = hits.get(key) ?? [];
+    const valid = existing.filter((t: number) => t > now - windowMs);
 
-    record.count++;
-    if (record.count > maxRequests) {
+    if (valid.length >= maxRequests) {
+      const retryAfterMs = valid[0] + windowMs - now;
+      res.setHeader("Retry-After", String(Math.ceil(retryAfterMs / 1000)));
       res.status(429).json({ error: "Too many requests" });
       return;
     }
+
+    valid.push(now);
+    hits.set(key, valid);
+
+    // Prevent memory exhaustion from many unique IPs (e.g. DDoS)
+    if (hits.size > RATE_LIMIT_MAX_IPS) {
+      const toDelete = hits.size - RATE_LIMIT_MAX_IPS;
+      let deleted = 0;
+      const keys = Array.from(hits.keys());
+      for (let i = 0; i < keys.length && deleted < toDelete; i++) {
+        hits.delete(keys[i]);
+        deleted++;
+      }
+    }
+
     next();
   };
 }

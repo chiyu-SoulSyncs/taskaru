@@ -82,8 +82,9 @@ async function handleEvent(event: LineWebhookEvent) {
 
   // ─── Command: linking code (8-char alphanumeric) ─────────────────────────
   if (/^[A-Z0-9]{8}$/i.test(text)) {
-    await handleLinkingCode(lineUserId, text.toUpperCase(), replyToken);
-    return;
+    const linked = await handleLinkingCode(lineUserId, text.toUpperCase(), replyToken);
+    if (linked) return;
+    // If code didn't match, fall through to task extraction
   }
 
   // ─── Command: done N ──────────────────────────────────────────────────────
@@ -138,14 +139,13 @@ async function handleEvent(event: LineWebhookEvent) {
 
 // ─── Linking Code Handler ────────────────────────────────────────────────────
 
-async function handleLinkingCode(lineUserId: string, code: string, replyToken: string) {
+/** Returns true if linking succeeded, false if code didn't match (fall through to task extraction) */
+async function handleLinkingCode(lineUserId: string, code: string, replyToken: string): Promise<boolean> {
   const appUserId = await verifyAndConsumeLinkingCode(code);
 
   if (!appUserId) {
-    // Don't reveal whether code existed or expired (security)
-    // Silently ignore - could be a normal 8-char message
-    // Fall through to task extraction instead
-    return;
+    // Code didn't match - fall through to task extraction
+    return false;
   }
 
   // Link the LINE user to the web user
@@ -158,6 +158,7 @@ async function handleLinkingCode(lineUserId: string, code: string, replyToken: s
       "過去に送ったタスクも同期されました。"
     ),
   ]);
+  return true;
 }
 
 // ─── Command Handlers ─────────────────────────────────────────────────────────
