@@ -19,8 +19,8 @@ export const foldersRouter = router({
     .input(
       z.object({
         name: z.string().min(1).max(64),
-        color: z.string().optional(),
-        icon: z.string().optional(),
+        color: z.string().max(32).optional(),
+        icon: z.string().max(32).optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -38,8 +38,8 @@ export const foldersRouter = router({
       z.object({
         id: z.number(),
         name: z.string().min(1).max(64).optional(),
-        color: z.string().optional(),
-        icon: z.string().optional(),
+        color: z.string().max(32).optional(),
+        icon: z.string().max(32).optional(),
         sortOrder: z.number().optional(),
       })
     )

@@ -9,6 +9,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { lineWebhookRouter } from "../lineWebhook";
 import { startScheduler } from "../scheduler";
+import { ENV } from "./env";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -27,19 +28,62 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+// ─── Simple rate limiter ──────────────────────────────────────────────────────
+function createRateLimiter(windowMs: number, maxRequests: number) {
+  const hits = new Map<string, { count: number; resetAt: number }>();
+
+  return (req: Request, res: Response, next: NextFunction) => {
+    const key = req.ip || req.socket.remoteAddress || "unknown";
+    const now = Date.now();
+    const record = hits.get(key);
+
+    if (!record || now > record.resetAt) {
+      hits.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+
+    record.count++;
+    if (record.count > maxRequests) {
+      res.status(429).json({ error: "Too many requests" });
+      return;
+    }
+    next();
+  };
+}
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // ─── Security headers ───────────────────────────────────────────────────
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("X-XSS-Protection", "1; mode=block");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    if (ENV.isProduction) {
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    next();
+  });
 
-  // OAuth callback under /api/oauth/callback
+  // ─── Trust proxy (Cloud Run, etc.) ──────────────────────────────────────
+  app.set("trust proxy", true);
+
+  // ─── Body parser ────────────────────────────────────────────────────────
+  app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ limit: "1mb", extended: true }));
+
+  // ─── Rate limiting ──────────────────────────────────────────────────────
+  app.use("/api/oauth", createRateLimiter(60_000, 10));  // 10 req/min
+  app.use("/api/line", createRateLimiter(60_000, 30));    // 30 req/min
+  app.use("/api/trpc", createRateLimiter(60_000, 100));   // 100 req/min
+
+  // ─── OAuth routes ───────────────────────────────────────────────────────
   registerOAuthRoutes(app);
 
-  // LINE Webhook routes: use express.raw() to capture raw body for signature verification
-  app.use("/api/line", express.raw({ type: "application/json", limit: "10mb" }), (req: Request, _res: Response, next: NextFunction) => {
+  // ─── LINE Webhook ───────────────────────────────────────────────────────
+  app.use("/api/line", express.raw({ type: "application/json", limit: "1mb" }), (req: Request, _res: Response, next: NextFunction) => {
     if (Buffer.isBuffer(req.body)) {
       const raw = req.body.toString("utf8");
       (req as Request & { rawBody: string }).rawBody = raw;
@@ -52,7 +96,7 @@ async function startServer() {
     next();
   }, lineWebhookRouter);
 
-  // tRPC API
+  // ─── tRPC API ───────────────────────────────────────────────────────────
   app.use(
     "/api/trpc",
     createExpressMiddleware({
@@ -61,7 +105,7 @@ async function startServer() {
     })
   );
 
-  // development mode uses Vite, production mode uses static files
+  // ─── Static / Vite ─────────────────────────────────────────────────────
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {
@@ -77,7 +121,6 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
-    // Start cron scheduler after server is up
     startScheduler();
   });
 }

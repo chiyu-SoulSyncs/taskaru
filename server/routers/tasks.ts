@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import {
   createTask,
@@ -23,11 +24,11 @@ export const tasksRouter = router({
   list: protectedProcedure
     .input(
       z.object({
-        status: z.string().optional(),
-        priority: z.string().optional(),
-        category: z.string().optional(),
-        search: z.string().optional(),
-        dueDateFilter: z.string().optional(),
+        status: z.enum(["todo", "doing", "done"]).optional(),
+        priority: z.enum(["P1", "P2", "P3"]).optional(),
+        category: z.string().max(64).optional(),
+        search: z.string().max(200).optional(),
+        dueDateFilter: z.string().max(20).optional(),
       })
     )
     .query(async ({ input }) => {
@@ -38,7 +39,9 @@ export const tasksRouter = router({
   byId: protectedProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
-      return getTaskById(input.id);
+      const task = await getTaskById(input.id);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      return task;
     }),
 
   // ─── Sub-tasks by parent ───────────────────────────────────────────────────
@@ -60,17 +63,19 @@ export const tasksRouter = router({
     .input(
       z.object({
         id: z.number(),
-        title: z.string().optional(),
-        note: z.string().nullable().optional(),
+        title: z.string().min(1).max(200).optional(),
+        note: z.string().max(5000).nullable().optional(),
         status: z.enum(["todo", "doing", "done"]).optional(),
         priority: z.enum(["P1", "P2", "P3"]).optional(),
-        category: z.string().optional(),
-        dueDate: z.string().nullable().optional(), // YYYY-MM-DD or null
+        category: z.string().max(64).optional(),
+        dueDate: z.string().max(20).nullable().optional(),
         parentTaskId: z.number().nullable().optional(),
       })
     )
     .mutation(async ({ input }) => {
       const { id, dueDate, ...rest } = input;
+      const existing = await getTaskById(id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
       const updateData: Parameters<typeof updateTask>[1] = { ...rest };
       if (dueDate !== undefined) {
         updateData.dueDate = dueDate ? new Date(dueDate) : null;
@@ -84,7 +89,7 @@ export const tasksRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const task = await getTaskById(input.id);
-      if (!task) throw new Error("Task not found");
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
       const newStatus = task.status === "done" ? "todo" : "done";
       await updateTask(input.id, { status: newStatus });
       return getTaskById(input.id);
@@ -94,7 +99,8 @@ export const tasksRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      // 子タスクも一緒に削除
+      const task = await getTaskById(input.id);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
       const subTasks = await getSubTasksByParent(input.id);
       if (subTasks.length > 0) {
         await deleteTasks(subTasks.map((t) => t.id));
@@ -105,7 +111,7 @@ export const tasksRouter = router({
 
   // ─── Delete Multiple Tasks ─────────────────────────────────────────────────
   deleteMany: protectedProcedure
-    .input(z.object({ ids: z.array(z.number()) }))
+    .input(z.object({ ids: z.array(z.number()).max(100) }))
     .mutation(async ({ input }) => {
       await deleteTasks(input.ids);
       return { success: true, count: input.ids.length };
@@ -113,7 +119,7 @@ export const tasksRouter = router({
 
   // ─── Update Sort Orders ────────────────────────────────────────────────────
   reorder: protectedProcedure
-    .input(z.object({ items: z.array(z.object({ id: z.number(), sortOrder: z.number() })) }))
+    .input(z.object({ items: z.array(z.object({ id: z.number(), sortOrder: z.number() })).max(500) }))
     .mutation(async ({ input }) => {
       await updateTaskSortOrders(input.items);
       return { success: true };
@@ -125,10 +131,12 @@ export const tasksRouter = router({
       z.object({
         id: z.number(),
         repeatType: z.enum(["none", "daily", "weekly", "monthly"]),
-        repeatDays: z.array(z.number()).nullable().optional(),
+        repeatDays: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
       })
     )
     .mutation(async ({ input }) => {
+      const task = await getTaskById(input.id);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
       await updateTask(input.id, {
         repeatType: input.repeatType,
         repeatDays: input.repeatDays ?? null,
@@ -137,19 +145,19 @@ export const tasksRouter = router({
     }),
 
   // ─── LINE Users ────────────────────────────────────────────────────────────
-  lineUsers: protectedProcedure.query(async () => {
+  lineUsers: adminProcedure.query(async () => {
     return getAllLineUsers();
   }),
 
-  lineUserByLineId: protectedProcedure
-    .input(z.object({ lineUserId: z.string() }))
+  lineUserByLineId: adminProcedure
+    .input(z.object({ lineUserId: z.string().max(128) }))
     .query(async ({ input }) => {
       return getLineUser(input.lineUserId);
     }),
 
   // ─── Get latest reply context ──────────────────────────────────────────────
-  replyContext: protectedProcedure
-    .input(z.object({ lineUserId: z.string() }))
+  replyContext: adminProcedure
+    .input(z.object({ lineUserId: z.string().max(128) }))
     .query(async ({ input }) => {
       return getLatestReplyContext(input.lineUserId);
     }),
@@ -164,13 +172,13 @@ export const tasksRouter = router({
   create: protectedProcedure
     .input(
       z.object({
-        title: z.string().min(1),
-        note: z.string().nullable().optional(),
+        title: z.string().min(1).max(200),
+        note: z.string().max(5000).nullable().optional(),
         priority: z.enum(["P1", "P2", "P3"]).optional(),
-        category: z.string().optional(),
-        dueDate: z.string().nullable().optional(),
+        category: z.string().max(64).optional(),
+        dueDate: z.string().max(20).nullable().optional(),
         repeatType: z.enum(["none", "daily", "weekly", "monthly"]).optional(),
-        repeatDays: z.array(z.number()).nullable().optional(),
+        repeatDays: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
         folderId: z.number().nullable().optional(),
         projectId: z.number().nullable().optional(),
         parentTaskId: z.number().nullable().optional(),
@@ -192,7 +200,6 @@ export const tasksRouter = router({
         parentTaskId: input.parentTaskId ?? null,
         sortOrder: input.sortOrder ?? 0,
       });
-      // folderId は別途 update
       if (task && input.folderId != null) {
         await updateTask(task.id, { folderId: input.folderId });
         return getTaskById(task.id);
@@ -200,11 +207,11 @@ export const tasksRouter = router({
       return task;
     }),
 
-  // ─── Bulk Move to Folder ─────────────────────────────────────────────────────────
+  // ─── Bulk Move to Folder ─────────────────────────────────────────────────
   bulkMoveToFolder: protectedProcedure
     .input(
       z.object({
-        ids: z.array(z.number()).min(1),
+        ids: z.array(z.number()).min(1).max(100),
         folderId: z.number().nullable(),
       })
     )
@@ -213,7 +220,7 @@ export const tasksRouter = router({
       return { success: true, count };
     }),
 
-  // ─── Stats ───────────────────────────────────────────────────────────────────────────────
+  // ─── Stats ─────────────────────────────────────────────────────────────────
   stats: protectedProcedure.query(async () => {
     const all = await getAllTasks();
     const total = all.length;
