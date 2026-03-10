@@ -36,23 +36,23 @@ Phase 1 (Manus除去)        ← 最初にやる、他に影響なし
 - `server/_core/types/manusTypes.ts` → Manus固有の型定義
 
 ### やること
-- [ ] **2.1** `server/_core/env.ts`: Manus変数削除、Google OAuth変数追加
+- [x] **2.1** `server/_core/env.ts`: Manus変数削除、Google OAuth変数追加
   - 削除: `appId`, `oAuthServerUrl`, `ownerOpenId`
   - 追加: `googleClientId`, `googleClientSecret`, `appUrl`
-- [ ] **2.2** `server/_core/sdk.ts`: 全面書き換え
+- [x] **2.2** `server/_core/sdk.ts`: 全面書き換え
   - `OAuthService` / `SDKServer` クラス削除
   - JWT部分（`signSession`, `verifySession`）は流用可
   - `SessionPayload` から `appId` 削除 → `userId`(number) + `name`
   - `authenticateRequest` を簡素化（JWTからuser取得のみ）
   - `as any` キャスト全廃
-- [ ] **2.3** `server/_core/oauth.ts`: Google OAuth直接実装
+- [x] **2.3** `server/_core/oauth.ts`: Google OAuth直接実装
   - `GET /api/oauth/google` → Googleの認可URLへリダイレクト
   - `GET /api/oauth/callback` → コード交換→ユーザーupsert→JWTセッション発行→`/`へリダイレクト
-- [ ] **2.4** `server/_core/types/manusTypes.ts`: 削除
-- [ ] **2.5** `client/src/const.ts`: `getLoginUrl()` を `/api/oauth/google` に変更
-- [ ] **2.6** `client/src/_core/hooks/useAuth.ts`: `useMemo` 内の `localStorage.setItem` を `useEffect` に移動、`manus-runtime-user-info` キー名変更
-- [ ] **2.7** `server/_core/cookies.ts`: `sameSite: "none"` → `"lax"` に変更（同一オリジンデプロイ前提）、ドメイン制限のコメントアウト解除
-- [ ] **2.8** `drizzle/schema.ts`: `users.openId` に `google:{googleId}` 形式で保存（スキーマ変更不要）
+- [x] **2.4** `server/_core/types/manusTypes.ts`: 削除
+- [x] **2.5** `client/src/const.ts`: `getLoginUrl()` を `/api/oauth/google` に変更
+- [x] **2.6** `client/src/_core/hooks/useAuth.ts`: `useMemo` 内の `localStorage.setItem` を `useEffect` に移動、`manus-runtime-user-info` キー名変更
+- [x] **2.7** `server/_core/cookies.ts`: `sameSite: "none"` → `"lax"` に変更（同一オリジンデプロイ前提）、ドメイン制限のコメントアウト解除
+- [x] **2.8** `drizzle/schema.ts`: `users.openId` に `google:{googleId}` 形式で保存（スキーマ変更不要）
 
 ---
 
@@ -63,8 +63,8 @@ Phase 1 (Manus除去)        ← 最初にやる、他に影響なし
 - モデル: `gemini-2.5-flash` ハードコード
 
 ### やること
-- [ ] **3.1** `server/_core/env.ts`: `forgeApiUrl`/`forgeApiKey` → `llmApiUrl`/`llmApiKey`/`llmModel` にリネーム
-- [ ] **3.2** `server/_core/llm.ts`:
+- [x] **3.1** `server/_core/env.ts`: `forgeApiUrl`/`forgeApiKey` → `llmApiUrl`/`llmApiKey`/`llmModel` にリネーム
+- [x] **3.2** `server/_core/llm.ts`:
   - `resolveApiUrl()`: `forge.manus.im` フォールバック削除 → `ENV.llmApiUrl` 必須に
   - モデル名: `"gemini-2.5-flash"` → `ENV.llmModel` に外出し
   - `thinking` フィールド（L300-302）: 削除 or 設定可能に（全プロバイダ非対応）
