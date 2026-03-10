@@ -13,6 +13,7 @@ import {
   moveTaskToProject,
   createTask,
   createKpi,
+  getTaskById,
 } from "../db";
 import { invokeLLM } from "../_core/llm";
 
@@ -105,7 +106,19 @@ export const projectsRouter = router({
         projectId: z.number().nullable(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Verify task belongs to user
+      const task = await getTaskById(input.taskId);
+      if (task && task.appUserId !== null && task.appUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
+      // Verify project belongs to user
+      if (input.projectId !== null) {
+        const project = await getProjectById(input.projectId);
+        if (project && project.appUserId !== null && project.appUserId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+        }
+      }
       await moveTaskToProject(input.taskId, input.projectId);
       return { success: true };
     }),

@@ -16,6 +16,7 @@ import {
   getSubTasksByParent,
   getAllTasksByProject,
   getProjectById,
+  getFolderById,
 } from "../db";
 import { sendMorningReminders } from "../scheduler";
 import { z } from "zod";
@@ -150,7 +151,14 @@ export const tasksRouter = router({
   // ─── Update Sort Orders ────────────────────────────────────────────────────
   reorder: protectedProcedure
     .input(z.object({ items: z.array(z.object({ id: z.number(), sortOrder: z.number() })).max(500) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Verify all tasks belong to the user
+      for (const item of input.items) {
+        const task = await getTaskById(item.id);
+        if (task && task.appUserId !== null && task.appUserId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+        }
+      }
       await updateTaskSortOrders(input.items);
       return { success: true };
     }),
@@ -249,7 +257,21 @@ export const tasksRouter = router({
         folderId: z.number().nullable(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Verify all tasks belong to the user
+      for (const id of input.ids) {
+        const task = await getTaskById(id);
+        if (task && task.appUserId !== null && task.appUserId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+        }
+      }
+      // Verify folder belongs to user (if not removing from folder)
+      if (input.folderId !== null) {
+        const folder = await getFolderById(input.folderId);
+        if (folder && folder.appUserId !== null && folder.appUserId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+        }
+      }
       const count = await bulkMoveTasksToFolder(input.ids, input.folderId);
       return { success: true, count };
     }),

@@ -412,8 +412,15 @@ async function handleProjectTaskCommand(
   try {
     const appUserId = await resolveAppUserId(lineUserId);
 
-    // Find matching project by name (scoped to user if linked)
-    const allProjects = await getAllProjects(appUserId ?? undefined);
+    if (!appUserId) {
+      await replyMessage(replyToken, [
+        buildTextMessage("❌ プロジェクト機能を使うにはWebアプリでLINE連携を行ってください。"),
+      ]);
+      return;
+    }
+
+    // Find matching project by name (scoped to linked user)
+    const allProjects = await getAllProjects(appUserId);
     let project = allProjects.find(
       (p) => p.title.toLowerCase().includes(projectName.toLowerCase()) ||
              projectName.toLowerCase().includes(p.title.toLowerCase())
