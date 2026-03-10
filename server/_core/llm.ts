@@ -267,8 +267,61 @@ const normalizeResponseFormat = ({
   };
 };
 
+// ─── LLM Rate Limiter (global) ────────────────────────────────────────────
+const llmCallLog: number[] = [];
+const LLM_RATE_LIMIT = 30;           // max 30 LLM calls per minute (global)
+const LLM_RATE_WINDOW_MS = 60_000;
+const LLM_DAILY_LIMIT = 500;         // max 500 calls per day
+let llmDailyCount = 0;
+let llmDailyResetAt = Date.now() + 86_400_000;
+
+function checkLLMRateLimit(): boolean {
+  const now = Date.now();
+
+  // Daily reset
+  if (now > llmDailyResetAt) {
+    llmDailyCount = 0;
+    llmDailyResetAt = now + 86_400_000;
+  }
+
+  // Daily limit
+  if (llmDailyCount >= LLM_DAILY_LIMIT) {
+    console.error(`[LLM] Daily limit exceeded (${LLM_DAILY_LIMIT}/day)`);
+    return false;
+  }
+
+  // Per-minute limit
+  while (llmCallLog.length > 0 && llmCallLog[0] < now - LLM_RATE_WINDOW_MS) {
+    llmCallLog.shift();
+  }
+  if (llmCallLog.length >= LLM_RATE_LIMIT) {
+    console.error(`[LLM] Rate limit exceeded (${LLM_RATE_LIMIT}/min)`);
+    return false;
+  }
+
+  llmCallLog.push(now);
+  llmDailyCount++;
+  return true;
+}
+
+// ─── Max input size to prevent token cost explosion ───────────────────────
+const MAX_INPUT_CHARS = 10_000;
+
+function truncateInput(messages: Message[]): Message[] {
+  return messages.map(msg => {
+    if (typeof msg.content === "string" && msg.content.length > MAX_INPUT_CHARS) {
+      return { ...msg, content: msg.content.slice(0, MAX_INPUT_CHARS) + "\n...(truncated)" };
+    }
+    return msg;
+  });
+}
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
+
+  if (!checkLLMRateLimit()) {
+    throw new Error("LLM rate limit exceeded. Please try again later.");
+  }
 
   const {
     messages,
@@ -281,9 +334,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
+  const safeMessages = truncateInput(messages);
+
   const payload: Record<string, unknown> = {
     model: ENV.llmModel,
-    messages: messages.map(normalizeMessage),
+    messages: safeMessages.map(normalizeMessage),
   };
 
   if (tools && tools.length > 0) {
@@ -298,7 +353,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768;
+  payload.max_tokens = 4096;
 
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,
