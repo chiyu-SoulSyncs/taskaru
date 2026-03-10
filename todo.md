@@ -1,150 +1,181 @@
-# LINE Task Manager - TODO
+# Taskaru — Manus独立化 & リリース計画
 
-## Phase 1: DB設計・マイグレーション
-- [x] tasks テーブル（id, userId, title, note, status, priority, category, dueDate, sourceMessageId, createdAt, updatedAt）
-- [x] messages テーブル（id, userId, sourceMessageId, rawText, createdAt）
-- [x] reply_contexts テーブル（id, userId, taskIds, createdAt）
-- [x] line_users テーブル（id, lineUserId, appUserId, createdAt）
-- [x] DB マイグレーション実行（pnpm db:push）
+## 全体像
 
-## Phase 2: バックエンドAPI
-- [x] LINE Channel Secret / Access Token 環境変数設定
-- [x] LINE Webhook エンドポイント（/api/line/webhook）実装
-- [x] LINE 署名検証ミドルウェア実装
-- [x] LLM タスク抽出（JSON固定スキーマ）実装
-- [x] タスク CRUD tRPC ルーター実装
-- [x] LINE 返信・プッシュ通知送信ヘルパー実装
-- [x] done N / undo N / list コマンド処理実装
-- [x] 毎朝9:00 JST リマインダースケジューラ（node-cron）実装
-- [x] 重複メッセージ防止（sourceMessageId ユニーク制約）
+```
+Phase 1 (Manus除去)        ← 最初にやる、他に影響なし
+  ├── Phase 2 (認証差替)    ← ユーザー関連の全てに必要
+  │     ├── Phase 4 (セキュリティ) ← 認証が前提
+  │     │     └── Phase 5 (マルチユーザー) ← セキュリティ+認証が前提
+  │     └── Phase 6 (DB/デプロイ) ← Phase 4と並行可
+  ├── Phase 3 (LLM差替)    ← Phase 2と並行可
+  └── Phase 7 (コード品質)  ← いつでも可
+```
 
-## Phase 3: フロントエンド（Webダッシュボード）
-- [x] DashboardLayout 適用・サイドバーナビゲーション設定
-- [x] タスク一覧ページ（テーブル表示）実装
-- [x] 検索・フィルタ（status / priority / category / dueDate）機能
-- [x] ソート（期限近い順・優先度順）機能
-- [x] タスク詳細編集モーダル実装
-- [x] 一覧からワンクリック完了切替
-- [x] 期限切れタスクを上部に表示・赤色ハイライト
-- [x] モバイル対応レスポンシブデザイン
-- [x] LINE設定ページ（lineUserId 紐付け確認）
+**最小リリースに必要**: Phase 1 + 2 + 3 + 4.1 + 6.1
 
-## Phase 4: テスト・仕上げ
-- [x] Vitest ユニットテスト（LLM抽出・署名検証・コマンド処理）
-- [x] 環境変数ドキュメント整備
-- [x] チェックポイント保存
+---
 
-## バグ修正
+## Phase 1: Manus固有コードの除去（リスク低）
 
-- [x] LINE Webhook 500エラー修正（rawBody ミドルウェアの stream encoding 競合を express.raw() で解決）
-- [x] LINE返信メッセージの日付フォーマット修正（UTC文字列 → MM/DD形式）
-- [x] 優先度表示を P1/P2 → 高/中/低 に変更
-- [x] Glassmorphism デザイン全面適用（index.css グローバルテーマ）
-- [x] サイドバーをすりガラス＋グラデーション背景に変更
-- [x] ダッシュボードページをガラスカードデザインに変更
-- [x] タスク一覧ページをガラスカードデザインに変更
-- [x] ログインページをガラスカードデザインに変更
-- [x] LINE「リマインド」コマンドで未完了タスクを即時送信
-- [x] Glassmorphism デザイン全面適用（Tasks.tsx・LineSettings.tsx）
-- [x] ダッシュボードのLINEコマンドカードを削除
-- [x] タスク一覧の文字色・コントラストを改善（見やすく）
-- [x] タスク一覧の白文字を全て濃い色に修正（ヘッダー・検索・フィルタ・凡例）
-- [x] ドラッグ&ドロップでタスク並び替え（@dnd-kit使用）
-- [x] タスクの繰り返し設定（毎日/毎週/毎月/曜日指定）
-- [x] 複数選択して一括削除
-- [x] 完了タスクを一覧から自動非表示（デフォルト）
+- [ ] **1.1** `vite.config.ts`: `vite-plugin-manus-runtime` と `vitePluginManusDebugCollector` 関数を削除、`allowedHosts` を `localhost` + `127.0.0.1` のみに
+- [ ] **1.2** `package.json`: `vite-plugin-manus-runtime` を devDependencies から削除
+- [ ] **1.3** `client/public/__manus__/` ディレクトリごと削除
+- [ ] **1.4** `server/_core/dataApi.ts`: 削除（Manus `CallApi` 依存、未使用）
+- [ ] **1.5** `server/_core/notification.ts`: Manus `SendNotification` 依存 → LINE push通知 or ログ出力に書き換え
+- [ ] **1.6** `server/_core/systemRouter.ts`: `notifyOwner` を新しい通知方式に更新
+- [ ] **1.7** `.env.example` を作成（全環境変数を文書化）
 
-## 新機能追加（2026-02-27）
-- [ ] Webダッシュボードの「＋」ボタンでタスク直接登録（タイトル・メモ・優先度・カテゴリ・期限・繰り返し設定）
-- [ ] 繰り返しタスクの自動生成（完了時 or 朝リマインダー時に次回分を自動作成）
-- [x] 朝リマインド時刻を9時→8時（JST）に変更
+---
 
-## メモ機能 & タスクフォルダー（2026-02-27）
-- [x] notesテーブル追加（id, title, rawText, formattedText, tags, sourceLineUserId, createdAt）
-- [x] foldersテーブル追加（id, name, color, icon, sortOrder, createdAt）
-- [x] tasksテーブルにfolderId列追加
-- [x] DBマイグレーション実行
-- [x] tRPC: notes.create（AI整形・タスク候補抽出）/ notes.list / notes.byId / notes.delete
-- [x] tRPC: folders.list / folders.create / folders.update / folders.delete
-- [x] tRPC: tasks.moveToFolder（タスクのフォルダー移動）
-- [x] LINE Webhook: #メモ プレフィックスでメモとして保存・AI整形してLINE返信
-- [x] メモ一覧ページ（Notes.tsx）
-- [x] メモ詳細・新規作成ページ（入力→AI整形→タスク候補確認→保存）
-- [x] Tasks.tsxにフォルダーサイドバー追加（フォルダー別フィルタ）
-- [x] サイドバーナビゲーションにメモ・フォルダー追加
+## Phase 2: 認証システムの差し替え（最重要・最大工数）
 
-## バグ修正（2026-02-27）
-- [x] スマホでフォルダーサイドバーとタスクカードが横並びになりレイアウト崩れ → モバイルは横スクロールタグ形式に修正
-- [x] メモページの白文字を濃い色に修正（視認性改善）
+### 現状
+- `server/_core/sdk.ts` → Manusの `WebDevAuthPublicService` でOAuth
+- `server/_core/oauth.ts` → Manusのトークン交換
+- `server/_core/types/manusTypes.ts` → Manus固有の型定義
 
-## プロジェクト管理機能（2026-02-27）
-- [ ] DBにprojectsテーブル追加（id, title, description, status, dueDate, color, sortOrder, createdAt）
-- [ ] tasks・notesテーブルにprojectId列追加（folderId廃止）
-- [ ] DBマイグレーション実行
-- [ ] tRPC: projects.list / projects.create / projects.update / projects.delete / projects.getById（進捗付き）
-- [ ] tasks.tsルーターにprojectIdフィルター追加
-- [ ] LINE Webhook: #プロジェクト名 タスク内容 でプロジェクトにタスク追加
-- [ ] プロジェクト一覧ページ（Projects.tsx）：カード形式・進捗バー・ステータス
-- [ ] プロジェクト詳細ページ（ProjectDetail.tsx）：タスク一覧＋メモ一覧
-- [ ] Tasks.tsxのフォルダーサイドバーをプロジェクトフィルターに変更
-- [ ] Notes.tsxにプロジェクト紐付け追加
-- [ ] DashboardLayoutにプロジェクトページリンク追加
-- [ ] App.tsxにプロジェクトルート追加
+### やること
+- [ ] **2.1** `server/_core/env.ts`: Manus変数削除、Google OAuth変数追加
+  - 削除: `appId`, `oAuthServerUrl`, `ownerOpenId`
+  - 追加: `googleClientId`, `googleClientSecret`, `appUrl`
+- [ ] **2.2** `server/_core/sdk.ts`: 全面書き換え
+  - `OAuthService` / `SDKServer` クラス削除
+  - JWT部分（`signSession`, `verifySession`）は流用可
+  - `SessionPayload` から `appId` 削除 → `userId`(number) + `name`
+  - `authenticateRequest` を簡素化（JWTからuser取得のみ）
+  - `as any` キャスト全廃
+- [ ] **2.3** `server/_core/oauth.ts`: Google OAuth直接実装
+  - `GET /api/oauth/google` → Googleの認可URLへリダイレクト
+  - `GET /api/oauth/callback` → コード交換→ユーザーupsert→JWTセッション発行→`/`へリダイレクト
+- [ ] **2.4** `server/_core/types/manusTypes.ts`: 削除
+- [ ] **2.5** `client/src/const.ts`: `getLoginUrl()` を `/api/oauth/google` に変更
+- [ ] **2.6** `client/src/_core/hooks/useAuth.ts`: `useMemo` 内の `localStorage.setItem` を `useEffect` に移動、`manus-runtime-user-info` キー名変更
+- [ ] **2.7** `server/_core/cookies.ts`: `sameSite: "none"` → `"lax"` に変更（同一オリジンデプロイ前提）、ドメイン制限のコメントアウト解除
+- [ ] **2.8** `drizzle/schema.ts`: `users.openId` に `google:{googleId}` 形式で保存（スキーマ変更不要）
 
-## 追加機能（2026-03-02）
-- [ ] タスク新規作成モーダルにプロジェクト選択ドロップダウンを追加
-- [ ] 朝リマインドにプロジェクト別進捗（進行中プロジェクトの完了率）を追加
+---
 
-## 一括フォルダ移動機能（2026-03-02）
-- [x] Tasks.tsxの選択モードに「フォルダへ移動」ボタンを追加
-- [x] フォルダ選択ポップアップ（インライン）を実装
-- [x] server/routers/tasks.tsにbulkMoveToFolder APIを追加
-- [x] server/db.tsにbulkMoveToFolderヘルパーを追加
+## Phase 3: LLM API差し替え（Phase 2と並行可）
 
-## メモ詳細タスク候補UI（2026-03-02）
-- [x] DBスキーマのnotesTableにtaskCandidatesカラムを追加
-- [x] lineWebhook.tsでタスク候補をDBに保存する
-- [x] server/routers/notes.tsにタスク候補取得・タスク追加APIを追加
-- [x] Notes.tsxのメモ詳細にタスク候補UIを実装
+### 現状
+- `server/_core/llm.ts` → `forge.manus.im`（ManusのLLMプロキシ、OpenAI互換形式）
+- モデル: `gemini-2.5-flash` ハードコード
 
-## UI・機能改善（2026-03-02 その2）
-- [x] LINE設定ページの文字色を修正（白文字→見やすい色）
-- [x] プロジェクト詳細のタスク編集機能を追加
-- [x] プロジェクトの備考を後から編集できる機能を追加
-- [x] KPI管理機能をDBスキーマ・サーバー・UIに実装
+### やること
+- [ ] **3.1** `server/_core/env.ts`: `forgeApiUrl`/`forgeApiKey` → `llmApiUrl`/`llmApiKey`/`llmModel` にリネーム
+- [ ] **3.2** `server/_core/llm.ts`:
+  - `resolveApiUrl()`: `forge.manus.im` フォールバック削除 → `ENV.llmApiUrl` 必須に
+  - モデル名: `"gemini-2.5-flash"` → `ENV.llmModel` に外出し
+  - `thinking` フィールド（L300-302）: 削除 or 設定可能に（全プロバイダ非対応）
+  - エラーメッセージ: APIレスポンス全文をthrowしない → サニタイズ
+  - `assertApiKey()` のメッセージ: `OPENAI_API_KEY` → `LLM_API_KEY`
 
-## KPI AI自動入力機能（2026-03-02）
-- [x] kpis.tsルーターにextractKpisFromText（AI抽出）とbulkCreate APIを追加
-- [x] ProjectDetail.tsxのKPIセクションに「AIで入力」ボタンとテキスト入力モーダルを追加
+### LLM選択肢
+| プロバイダ | URL | 備考 |
+|-----------|-----|------|
+| Google Gemini (OpenAI互換) | `https://generativelanguage.googleapis.com/v1beta/openai` | 最小変更で移行可 |
+| OpenAI | `https://api.openai.com/v1` | そのまま使える |
+| OpenRouter | `https://openrouter.ai/api/v1` | 複数モデル切替可 |
 
-## バグ修正（2026-03-02 その3）
-- [x] プロジェクト詳細のタスク編集機能が動作しないバグを修正
+---
 
-## バグ修正（2026-03-02 その4）
-- [x] KPI AI入力モーダルのテキストエリアが拡大してボタンが隠れるバグを修正
+## Phase 4: セキュリティ強化（本番公開前に必須）
 
-## 機能追加（2026-03-02 その5）
-- [x] プロジェクト詳細でプロジェクト名をインライン編集できる機能を追加
+### 4.1 データのユーザー分離（最重要）
+- [ ] `drizzle/schema.ts`: `folders`, `notes`, `projects` に `appUserId` カラム追加（`tasks` は既存だが未使用）
+- [ ] `server/db.ts`: 全 `getAll*` 関数に `appUserId` フィルタ追加
+  - `getAllTasks()`, `getAllFolders()`, `getAllNotes()`, `getAllProjects()`
+  - `createTask()`: `appUserId` を認証コンテキストから設定
+  - `update`/`delete` 系: 操作前に所有権チェック
+- [ ] 全ルーター: `ctx.user.id` をDB関数に渡す
 
-## 事業計画書一括インポート機能（2026-03-03）
-- [x] チェックポイント保存（実装前）
-- [x] server/routers/projects.tsにextractFromDocument APIを追加（AI一括抽出）
-- [x] server/routers/projects.tsにbulkImport APIを追加（一括DB登録）
-- [x] Projects.tsxに「AIインポート」ボタンとモーダルUIを実装（テキスト入力→AI抽出→確認・選択→一括登録）
+### 4.2 LINE署名検証の修正
+- [ ] `server/line.ts` (L29-31): `LINE_CHANNEL_SECRET` 未設定時の `return true` 削除 → エラーにする
+- [ ] 開発用: `SKIP_LINE_SIGNATURE=true` 環境変数で明示的にスキップ
 
-## バグ修正（2026-03-03）
-- [x] 朝のリマインドがLINEに届かない問題を調査・修正（getPendingTasksForReminderにWebタスクを含める修正 + サーバー起動時に当日リマインド未送信なら即座に送信するロジックを追加）
+### 4.3 レート制限の追加
+- [ ] `express-rate-limit` をインストール
+- [ ] `server/_core/index.ts` に追加:
+  - グローバル: 100 req/min per IP
+  - `/api/line/webhook`: 30 req/min
+  - `/api/oauth/*`: 10 req/min per IP
 
-## エラーチェック修正（2026-03-03）
-- [x] Google Fontsの@importをindex.cssからindex.htmlの<link>タグに移動（PostCSS警告解消）
-- [x] LSP tscウォッチのキャッシュ問題（tsBuildInfoFile）を解消
-- [x] タスク一覧の日付表示がNaN/NaNになる問題を修正（toDateStr関数でDateオブジェクト・ISO文字列両対応）
+### 4.4 その他
+- [ ] `server/_core/index.ts`: ボディサイズ `50mb` → `1mb` に縮小
+- [ ] CORS設定追加（デプロイドメイン限定）
+- [ ] `helmet` ミドルウェア追加
+- [ ] 全ルーター: `throw new Error()` → `throw new TRPCError()` に統一
 
-## 大タスク・小タスク階層管理 + 並び替え（2026-03-04）
-- [x] DBスキーマに parentTaskId カラムを追加しマイグレーション実行
-- [x] db.tsに子タスク取得・作成・並び替えヘルパーを追加
-- [x] routers/tasks.tsに子タスク・並び替えAPIを追加（allByProject・reorderーcreateにparentTaskId対応）
-- [x] ProjectDetail.tsxに大タスク・小タスクの階層UIを実装（折りたたみ・小タスク追加ボタン）
-- [x] ProjectDetail.tsxにドラッグ&ドロップ並び替えを実装（大タスク間・小タスク間内並び替え）
-## バグ修正（2026-03-04）
-- [x] アプリを開くと2回ux LINEメッセージが届くバグを修正（app_settingsテーブルで送信済み日付をDB永続化、サーバー再起動後も重複送信しないよう修正）
+---
+
+## Phase 5: マルチユーザー & LINE連携
+
+### 5.1 LINE-Webユーザー紐づけ
+- [ ] 新エンドポイント: `line.generateLinkCode` → ユニークなリンクコード生成
+- [ ] LINEコマンド追加: `link <コード>` → `lineUsers.appUserId` を設定
+- [ ] Webアプリ: LINE連携画面にコード表示
+
+### 5.2 LINEタスクのユーザー紐づけ
+- [ ] `server/lineWebhook.ts`: タスク作成時に `lineUser.appUserId` をセット
+- [ ] `server/scheduler.ts`: リマインダーをユーザー別に送信
+
+---
+
+## Phase 6: DB・デプロイ
+
+### 6.1 データベース
+- [ ] 本番DB用意（PlanetScale / Neon / Supabase / Railway MySQL等）
+- [ ] `server/db.ts` (L24-34): 接続リトライロジック追加
+- [ ] バルク操作にトランザクション追加（`insertTasks`, `deleteProject`, `deleteFolder`）
+
+### 6.2 タイムゾーン修正
+- [ ] `server/scheduler.ts`: 手動JST計算 → `node-cron` の `timezone: "Asia/Tokyo"` オプション使用
+
+### 6.3 デプロイ
+- [ ] `Dockerfile` 作成
+- [ ] Railway / Fly.io / VPS にデプロイ
+- [ ] LINE Webhook URLを本番URLに変更
+- [ ] Google OAuth のリダイレクトURIを本番URLに追加
+- [ ] `trust proxy` 設定（リバースプロキシ対応）
+
+---
+
+## Phase 7: コード品質（随時）
+
+- [ ] `server/db.ts`: `(result as any)[0]?.insertId` → 型付きヘルパー関数に
+- [ ] 未使用Manusモジュール削除: `imageGeneration.ts`, `map.ts`, `voiceTranscription.ts`（要import確認）
+- [ ] 入力バリデーション強化（Zodでtrim・max length）
+- [ ] 監査ログ追加
+
+---
+
+## 環境変数（最終形）
+
+| 変数 | 必須 | 説明 |
+|------|------|------|
+| `DATABASE_URL` | Yes | MySQL接続文字列 |
+| `JWT_SECRET` | Yes | セッションJWT署名用シークレット |
+| `GOOGLE_CLIENT_ID` | Yes | Google OAuth クライアントID |
+| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth クライアントシークレット |
+| `APP_URL` | Yes | アプリのベースURL（OAuth callback用） |
+| `LLM_API_KEY` | Yes | Gemini / OpenAI APIキー |
+| `LLM_API_URL` | Yes | LLM APIベースURL |
+| `LLM_MODEL` | No | モデル名（デフォルト: gemini-2.5-flash） |
+| `LINE_CHANNEL_SECRET` | Yes* | LINE署名検証 |
+| `LINE_CHANNEL_ACCESS_TOKEN` | Yes* | LINE Messaging API |
+| `PORT` | No | サーバーポート（デフォルト: 3000） |
+| `NODE_ENV` | No | development / production |
+
+*LINE連携を使う場合に必須
+
+---
+
+## 新規依存パッケージ
+
+| パッケージ | 用途 |
+|-----------|------|
+| `googleapis` or `passport-google-oauth20` | Google OAuth |
+| `express-rate-limit` | レート制限 |
+| `helmet` | セキュリティヘッダー |
+| `cors` | CORS設定 |
