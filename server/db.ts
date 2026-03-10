@@ -1,4 +1,9 @@
 import { and, desc, eq, isNull, like, ne, or, sql } from "drizzle-orm";
+
+/** Escape SQL LIKE wildcards to prevent pattern injection */
+function escapeLikePattern(input: string): string {
+  return input.replace(/[%_\\]/g, "\\$&");
+}
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertTask,
@@ -225,10 +230,11 @@ export async function getTasksByLineUser(
     conditions.push(eq(tasks.category, opts.category));
   }
   if (opts?.search) {
+    const escaped = escapeLikePattern(opts.search);
     conditions.push(
       or(
-        like(tasks.title, `%${opts.search}%`),
-        like(tasks.note, `%${opts.search}%`)
+        like(tasks.title, `%${escaped}%`),
+        like(tasks.note, `%${escaped}%`)
       )!
     );
   }
@@ -281,8 +287,9 @@ export async function getAllTasks(opts?: {
 
   const searchConditions = [];
   if (opts?.search) {
+    const escaped = escapeLikePattern(opts.search);
     searchConditions.push(
-      or(like(tasks.title, `%${opts.search}%`), like(tasks.note, `%${opts.search}%`))!
+      or(like(tasks.title, `%${escaped}%`), like(tasks.note, `%${escaped}%`))!
     );
   }
   if (opts?.dueDateFilter === "overdue") {

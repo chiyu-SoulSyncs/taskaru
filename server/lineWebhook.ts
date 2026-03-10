@@ -124,6 +124,10 @@ async function handleEvent(event: LineWebhookEvent) {
 // ─── Command Handlers ─────────────────────────────────────────────────────────
 
 async function handleDoneCommand(lineUserId: string, num: number, replyToken: string) {
+  if (num < 1 || num > 200) {
+    await replyMessage(replyToken, [buildTextMessage(`❌ 番号 ${num} は無効です`)]);
+    return;
+  }
   const ctx = await getLatestReplyContext(lineUserId);
   const taskIds = (ctx?.taskIds as number[]) ?? [];
   const taskId = taskIds[num - 1];
@@ -136,6 +140,12 @@ async function handleDoneCommand(lineUserId: string, num: number, replyToken: st
   const task = await getTaskById(taskId);
   if (!task) {
     await replyMessage(replyToken, [buildTextMessage(`❌ タスクが存在しません`)]);
+    return;
+  }
+
+  // Verify task ownership
+  if (task.lineUserId !== lineUserId && task.lineUserId !== "web") {
+    await replyMessage(replyToken, [buildTextMessage(`❌ このタスクを操作する権限がありません`)]);
     return;
   }
 
@@ -146,6 +156,10 @@ async function handleDoneCommand(lineUserId: string, num: number, replyToken: st
 }
 
 async function handleUndoCommand(lineUserId: string, num: number, replyToken: string) {
+  if (num < 1 || num > 200) {
+    await replyMessage(replyToken, [buildTextMessage(`❌ 番号 ${num} は無効です`)]);
+    return;
+  }
   const ctx = await getLatestReplyContext(lineUserId);
   const taskIds = (ctx?.taskIds as number[]) ?? [];
   const taskId = taskIds[num - 1];
@@ -158,6 +172,12 @@ async function handleUndoCommand(lineUserId: string, num: number, replyToken: st
   const task = await getTaskById(taskId);
   if (!task) {
     await replyMessage(replyToken, [buildTextMessage(`❌ タスクが存在しません`)]);
+    return;
+  }
+
+  // Verify task ownership
+  if (task.lineUserId !== lineUserId && task.lineUserId !== "web") {
+    await replyMessage(replyToken, [buildTextMessage(`❌ このタスクを操作する権限がありません`)]);
     return;
   }
 
@@ -209,7 +229,7 @@ async function handleReminderCommand(lineUserId: string, replyToken: string) {
 
 async function handleMemoCommand(lineUserId: string, text: string, replyToken: string) {
   // Strip the #メモ prefix
-  const rawText = text.replace(/^#(メモ|memo)\s*/i, "").trim();
+  const rawText = text.replace(/^#(メモ|memo)\s*/i, "").trim().slice(0, 5000);
   if (!rawText) {
     await replyMessage(replyToken, [
       buildTextMessage("📝 メモの内容を #メモ の後に書いてください。\n例: #メモ 斎藤さんの件について..."),
@@ -309,6 +329,10 @@ async function handleMemoCommand(lineUserId: string, text: string, replyToken: s
 }
 
 async function handleDeleteCommand(lineUserId: string, num: number, replyToken: string) {
+  if (num < 1 || num > 200) {
+    await replyMessage(replyToken, [buildTextMessage(`❌ 番号 ${num} は無効です`)]);
+    return;
+  }
   const ctx = await getLatestReplyContext(lineUserId);
   const taskIds = (ctx?.taskIds as number[]) ?? [];
   const taskId = taskIds[num - 1];
@@ -321,6 +345,12 @@ async function handleDeleteCommand(lineUserId: string, num: number, replyToken: 
   const task = await getTaskById(taskId);
   if (!task) {
     await replyMessage(replyToken, [buildTextMessage(`❌ タスクが存在しません`)]);
+    return;
+  }
+
+  // Verify task ownership
+  if (task.lineUserId !== lineUserId && task.lineUserId !== "web") {
+    await replyMessage(replyToken, [buildTextMessage(`❌ このタスクを削除する権限がありません`)]);
     return;
   }
 

@@ -1,3 +1,3 @@
-export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+export { COOKIE_NAME, SESSION_MAX_AGE_MS } from "@shared/const";
 
 export const getLoginUrl = () => "/api/oauth/google";

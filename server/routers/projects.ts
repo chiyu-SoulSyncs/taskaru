@@ -43,9 +43,9 @@ export const projectsRouter = router({
     .input(
       z.object({
         title: z.string().min(1).max(128),
-        description: z.string().optional(),
+        description: z.string().max(2000).optional(),
         status: z.enum(["active", "completed", "on_hold"]).optional(),
-        color: z.string().optional(),
+        color: z.string().max(32).optional(),
         dueDate: z.date().optional().nullable(),
       })
     )
@@ -64,9 +64,9 @@ export const projectsRouter = router({
       z.object({
         id: z.number(),
         title: z.string().min(1).max(128).optional(),
-        description: z.string().nullable().optional(),
+        description: z.string().max(2000).nullable().optional(),
         status: z.enum(["active", "completed", "on_hold"]).optional(),
-        color: z.string().optional(),
+        color: z.string().max(32).optional(),
         dueDate: z.date().nullable().optional(),
       })
     )
@@ -232,32 +232,32 @@ export const projectsRouter = router({
       z.object({
         projects: z.array(
           z.object({
-            title: z.string().min(1),
-            description: z.string().optional(),
+            title: z.string().min(1).max(128),
+            description: z.string().max(2000).optional(),
             status: z.enum(["active", "completed", "on_hold"]).optional(),
-            color: z.string().optional(),
+            color: z.string().max(32).optional(),
           })
-        ),
+        ).max(10),
         tasks: z.array(
           z.object({
-            title: z.string().min(1),
+            title: z.string().min(1).max(200),
             priority: z.enum(["P1", "P2", "P3"]).optional(),
-            category: z.string().optional(),
-            dueDate: z.string().optional(), // YYYY-MM-DD
+            category: z.string().max(64).optional(),
+            dueDate: z.string().max(20).optional(),
             projectIndex: z.number(),
           })
-        ),
+        ).max(50),
         kpis: z.array(
           z.object({
-            title: z.string().min(1),
-            unit: z.string().optional(),
+            title: z.string().min(1).max(128),
+            unit: z.string().max(32).optional(),
             targetValue: z.number(),
             currentValue: z.number().optional(),
-            dueDate: z.string().optional(), // YYYY-MM-DD
-            note: z.string().optional(),
+            dueDate: z.string().max(20).optional(),
+            note: z.string().max(500).optional(),
             projectIndex: z.number(),
           })
-        ),
+        ).max(30),
       })
     )
     .mutation(async ({ input }) => {

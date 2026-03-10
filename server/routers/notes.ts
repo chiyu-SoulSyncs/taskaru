@@ -93,7 +93,7 @@ export const notesRouter = router({
 
   // Preview: AI-format without saving
   preview: protectedProcedure
-    .input(z.object({ rawText: z.string().min(1) }))
+    .input(z.object({ rawText: z.string().min(1).max(20000) }))
     .mutation(async ({ input }) => {
       const result = await formatNoteWithAI(input.rawText);
       return result;
@@ -103,8 +103,8 @@ export const notesRouter = router({
   create: protectedProcedure
     .input(
       z.object({
-        rawText: z.string().min(1),
-        selectedTaskIndices: z.array(z.number()).optional(), // indices from taskCandidates to create as tasks
+        rawText: z.string().min(1).max(20000),
+        selectedTaskIndices: z.array(z.number()).max(30).optional(), // indices from taskCandidates to create as tasks
         sourceLineUserId: z.string().optional(),
       })
     )
@@ -150,9 +150,9 @@ export const notesRouter = router({
     .input(
       z.object({
         id: z.number(),
-        title: z.string().optional(),
-        formattedText: z.string().optional(),
-        tags: z.array(z.string()).optional(),
+        title: z.string().max(200).optional(),
+        formattedText: z.string().max(50000).optional(),
+        tags: z.array(z.string().max(50)).max(20).optional(),
       })
     )
     .mutation(async ({ input }) => {
