@@ -8,7 +8,7 @@ import { invokeLLM } from "../_core/llm";
 async function verifyProjectOwnership(projectId: number, userId: number) {
   const project = await getProjectById(projectId);
   if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
-  if (project.appUserId !== null && project.appUserId !== userId) {
+  if (project.appUserId !== userId) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
   }
   return project;

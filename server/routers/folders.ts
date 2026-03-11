@@ -49,7 +49,7 @@ export const foldersRouter = router({
       const { id, ...data } = input;
       const folder = await getFolderById(id);
       if (!folder) throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
-      if (folder.appUserId !== null && folder.appUserId !== ctx.user.id) {
+      if (folder.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       await updateFolder(id, data);
@@ -63,7 +63,7 @@ export const foldersRouter = router({
     .mutation(async ({ ctx, input }) => {
       const folder = await getFolderById(input.id);
       if (!folder) throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
-      if (folder.appUserId !== null && folder.appUserId !== ctx.user.id) {
+      if (folder.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       await deleteFolder(input.id);

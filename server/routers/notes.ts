@@ -91,7 +91,7 @@ export const notesRouter = router({
     .query(async ({ ctx, input }) => {
       const note = await getNoteById(input.id);
       if (!note) throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
-      if (note.appUserId !== null && note.appUserId !== ctx.user.id) {
+      if (note.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       return note;
@@ -167,7 +167,7 @@ export const notesRouter = router({
       const { id, ...data } = input;
       const note = await getNoteById(id);
       if (!note) throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
-      if (note.appUserId !== null && note.appUserId !== ctx.user.id) {
+      if (note.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       await updateNote(id, data);
@@ -180,7 +180,7 @@ export const notesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const note = await getNoteById(input.id);
       if (!note) throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
-      if (note.appUserId !== null && note.appUserId !== ctx.user.id) {
+      if (note.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       await deleteNote(input.id);
@@ -204,7 +204,7 @@ export const notesRouter = router({
       // Verify note belongs to user
       const noteCheck = await getNoteById(input.noteId);
       if (!noteCheck) throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
-      if (noteCheck.appUserId !== null && noteCheck.appUserId !== ctx.user.id) {
+      if (noteCheck.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
 

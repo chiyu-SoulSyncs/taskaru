@@ -33,7 +33,7 @@ export const projectsRouter = router({
     .query(async ({ ctx, input }) => {
       const project = await getProjectById(input.id);
       if (!project) return null;
-      if (project.appUserId !== null && project.appUserId !== ctx.user.id) {
+      if (project.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       const progress = await getProjectProgress(project.id);
@@ -78,7 +78,7 @@ export const projectsRouter = router({
       const { id, ...data } = input;
       const project = await getProjectById(id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
-      if (project.appUserId !== null && project.appUserId !== ctx.user.id) {
+      if (project.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       await updateProject(id, data);
@@ -90,7 +90,7 @@ export const projectsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const project = await getProjectById(input.id);
       if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
-      if (project.appUserId !== null && project.appUserId !== ctx.user.id) {
+      if (project.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       await deleteProject(input.id);

@@ -43,7 +43,7 @@ export const tasksRouter = router({
     .query(async ({ ctx, input }) => {
       const task = await getTaskById(input.id);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      if (task.appUserId !== null && task.appUserId !== ctx.user.id) {
+      if (task.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       return task;
@@ -55,7 +55,7 @@ export const tasksRouter = router({
     .query(async ({ ctx, input }) => {
       // Verify parent task belongs to user
       const parent = await getTaskById(input.parentTaskId);
-      if (parent && parent.appUserId !== null && parent.appUserId !== ctx.user.id) {
+      if (parent && parent.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       return getSubTasksByParent(input.parentTaskId);
@@ -67,7 +67,7 @@ export const tasksRouter = router({
     .query(async ({ ctx, input }) => {
       // Verify project belongs to user
       const project = await getProjectById(input.projectId);
-      if (project && project.appUserId !== null && project.appUserId !== ctx.user.id) {
+      if (project && project.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       return getAllTasksByProject(input.projectId);
@@ -91,7 +91,7 @@ export const tasksRouter = router({
       const { id, dueDate, ...rest } = input;
       const existing = await getTaskById(id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      if (existing.appUserId !== null && existing.appUserId !== ctx.user.id) {
+      if (existing.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       const updateData: Parameters<typeof updateTask>[1] = { ...rest };
@@ -108,7 +108,7 @@ export const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const task = await getTaskById(input.id);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      if (task.appUserId !== null && task.appUserId !== ctx.user.id) {
+      if (task.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       const newStatus = task.status === "done" ? "todo" : "done";
@@ -122,7 +122,7 @@ export const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const task = await getTaskById(input.id);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      if (task.appUserId !== null && task.appUserId !== ctx.user.id) {
+      if (task.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       const subTasks = await getSubTasksByParent(input.id);
@@ -140,7 +140,7 @@ export const tasksRouter = router({
       // Verify all tasks belong to user before deleting
       for (const id of input.ids) {
         const task = await getTaskById(id);
-        if (task && task.appUserId !== null && task.appUserId !== ctx.user.id) {
+        if (task && task.appUserId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
         }
       }
@@ -155,7 +155,7 @@ export const tasksRouter = router({
       // Verify all tasks belong to the user
       for (const item of input.items) {
         const task = await getTaskById(item.id);
-        if (task && task.appUserId !== null && task.appUserId !== ctx.user.id) {
+        if (task && task.appUserId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
         }
       }
@@ -175,7 +175,7 @@ export const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const task = await getTaskById(input.id);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      if (task.appUserId !== null && task.appUserId !== ctx.user.id) {
+      if (task.appUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       await updateTask(input.id, {
@@ -261,14 +261,14 @@ export const tasksRouter = router({
       // Verify all tasks belong to the user
       for (const id of input.ids) {
         const task = await getTaskById(id);
-        if (task && task.appUserId !== null && task.appUserId !== ctx.user.id) {
+        if (task && task.appUserId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
         }
       }
       // Verify folder belongs to user (if not removing from folder)
       if (input.folderId !== null) {
         const folder = await getFolderById(input.folderId);
-        if (folder && folder.appUserId !== null && folder.appUserId !== ctx.user.id) {
+        if (folder && folder.appUserId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
         }
       }
