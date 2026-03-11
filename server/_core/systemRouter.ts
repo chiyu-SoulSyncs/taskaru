@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { notifyOwner } from "./notification";
+import { getLinkedLineUsers } from "../db";
 import { adminProcedure, publicProcedure, router } from "./trpc";
 
 export const systemRouter = router({
@@ -20,9 +21,10 @@ export const systemRouter = router({
         content: z.string().min(1, "content is required"),
       })
     )
-    .mutation(async ({ input }) => {
-      // TODO: Pass admin's linked LINE userId when available
-      const delivered = await notifyOwner(input);
+    .mutation(async ({ input, ctx }) => {
+      const linkedUsers = await getLinkedLineUsers(ctx.user.id);
+      const adminLineUserId = linkedUsers[0]?.lineUserId;
+      const delivered = await notifyOwner(input, adminLineUserId);
       return {
         success: delivered,
       } as const;

@@ -9,6 +9,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { lineWebhookRouter } from "../lineWebhook";
 import { startScheduler } from "../scheduler";
+import helmet from "helmet";
 import { ENV } from "./env";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -91,17 +92,11 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // ─── Security headers ───────────────────────────────────────────────────
-  app.use((_req: Request, res: Response, next: NextFunction) => {
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("X-Frame-Options", "DENY");
-    res.setHeader("X-XSS-Protection", "1; mode=block");
-    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-    if (ENV.isProduction) {
-      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-    }
-    next();
-  });
+  // ─── Security headers (helmet) ──────────────────────────────────────────
+  app.use(helmet({
+    contentSecurityPolicy: false, // CSP is handled by Vite in dev
+    hsts: ENV.isProduction ? { maxAge: 31536000, includeSubDomains: true } : false,
+  }));
 
   // ─── Trust proxy (Cloud Run, etc.) ──────────────────────────────────────
   app.set("trust proxy", true);

@@ -25,10 +25,10 @@ describe("LINE signature verification", () => {
     process.env.LINE_CHANNEL_SECRET = original;
   });
 
-  it("skips verification when secret is not set", () => {
+  it("rejects when secret is not set", () => {
     const original = process.env.LINE_CHANNEL_SECRET;
     process.env.LINE_CHANNEL_SECRET = "";
-    expect(verifyLineSignature("any-body", "any-sig")).toBe(true);
+    expect(verifyLineSignature("any-body", "any-sig")).toBe(false);
     process.env.LINE_CHANNEL_SECRET = original;
   });
 });

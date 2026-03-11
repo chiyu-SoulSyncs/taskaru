@@ -6,8 +6,6 @@ import {
   createFolder,
   updateFolder,
   deleteFolder,
-  moveTaskToFolder,
-  getTaskById,
 } from "../db";
 import { z } from "zod";
 
@@ -72,28 +70,4 @@ export const foldersRouter = router({
       return { success: true };
     }),
 
-  // Move task to folder (or remove from folder with null)
-  moveTask: protectedProcedure
-    .input(
-      z.object({
-        taskId: z.number(),
-        folderId: z.number().nullable(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      // Verify task belongs to user
-      const task = await getTaskById(input.taskId);
-      if (task && task.appUserId !== null && task.appUserId !== ctx.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
-      }
-      // Verify folder belongs to user
-      if (input.folderId !== null) {
-        const folder = await getFolderById(input.folderId);
-        if (folder && folder.appUserId !== null && folder.appUserId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
-        }
-      }
-      await moveTaskToFolder(input.taskId, input.folderId);
-      return { success: true };
-    }),
 });

@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull, like, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import type { ResultSetHeader } from "mysql2/promise";
 import crypto from "crypto";
 import {
   InsertTask,
@@ -23,16 +24,35 @@ import {
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
+const DB_RETRY_ATTEMPTS = 3;
+const DB_RETRY_DELAY_MS = 1000;
+
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  if (_db) return _db;
+  if (!process.env.DATABASE_URL) return null;
+
+  for (let attempt = 1; attempt <= DB_RETRY_ATTEMPTS; attempt++) {
     try {
       _db = drizzle(process.env.DATABASE_URL);
+      // Verify connection with a simple query
+      await _db.execute(sql`SELECT 1`);
+      return _db;
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
       _db = null;
+      if (attempt < DB_RETRY_ATTEMPTS) {
+        console.warn(`[Database] Connection attempt ${attempt}/${DB_RETRY_ATTEMPTS} failed, retrying in ${DB_RETRY_DELAY_MS}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, DB_RETRY_DELAY_MS * attempt));
+      } else {
+        console.error(`[Database] All ${DB_RETRY_ATTEMPTS} connection attempts failed:`, error);
+      }
     }
   }
-  return _db;
+  return null;
+}
+
+/** Extract insertId from a mysql2 insert result */
+function getInsertId(result: [ResultSetHeader, unknown]): number {
+  return result[0].insertId;
 }
 
 /** Escape SQL LIKE wildcards to prevent pattern injection */
@@ -177,9 +197,8 @@ export async function createTask(data: {
     projectId: data.projectId ?? null,
     parentTaskId: data.parentTaskId ?? null,
   };
-  const result = await db.insert(tasks).values(insertData);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const insertId = (result as any)[0]?.insertId;
+  const result = await db.insert(tasks).values(insertData) as unknown as [ResultSetHeader, unknown];
+  const insertId = getInsertId(result);
   if (!insertId) return null;
   return getTaskById(insertId);
 }
@@ -203,66 +222,6 @@ export async function getTaskById(id: number) {
   if (!db) return undefined;
   const result = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
   return result[0];
-}
-
-export async function getTasksByLineUser(
-  lineUserId: string,
-  opts?: {
-    status?: string;
-    priority?: string;
-    category?: string;
-    search?: string;
-    dueDateFilter?: string;
-    sortBy?: string;
-    limit?: number;
-  }
-) {
-  const db = await getDb();
-  if (!db) return [];
-
-  const conditions = [eq(tasks.lineUserId, lineUserId)];
-
-  if (opts?.status && opts.status !== "all") {
-    conditions.push(eq(tasks.status, opts.status as "todo" | "doing" | "done"));
-  }
-  if (opts?.priority && opts.priority !== "all") {
-    conditions.push(eq(tasks.priority, opts.priority as "P1" | "P2" | "P3"));
-  }
-  if (opts?.category && opts.category !== "all") {
-    conditions.push(eq(tasks.category, opts.category));
-  }
-  if (opts?.search) {
-    const escaped = escapeLikePattern(opts.search);
-    conditions.push(
-      or(
-        like(tasks.title, `%${escaped}%`),
-        like(tasks.note, `%${escaped}%`)
-      )!
-    );
-  }
-  if (opts?.dueDateFilter === "overdue") {
-    conditions.push(sql`${tasks.dueDate} < CURDATE()`);
-  } else if (opts?.dueDateFilter === "today") {
-    conditions.push(sql`${tasks.dueDate} = CURDATE()`);
-  } else if (opts?.dueDateFilter === "week") {
-    conditions.push(sql`${tasks.dueDate} BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)`);
-  } else if (opts?.dueDateFilter === "none") {
-    conditions.push(isNull(tasks.dueDate));
-  }
-
-  const query = db
-    .select()
-    .from(tasks)
-    .where(and(...conditions))
-    .orderBy(
-      sql`CASE WHEN ${tasks.dueDate} IS NULL THEN 1 ELSE 0 END`,
-      tasks.dueDate,
-      sql`CASE ${tasks.priority} WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 WHEN 'P3' THEN 3 END`,
-      desc(tasks.createdAt)
-    )
-    .limit(opts?.limit ?? 200);
-
-  return query;
 }
 
 /**
@@ -348,14 +307,17 @@ export async function updateTask(
 ) {
   const db = await getDb();
   if (!db) return;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await db.update(tasks).set(data as any).where(eq(tasks.id, id));
+  await db.update(tasks).set(data).where(eq(tasks.id, id));
 }
 
 export async function deleteTask(id: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(tasks).where(eq(tasks.id, id));
+  await db.transaction(async (tx) => {
+    // Delete sub-tasks first to prevent orphans
+    await tx.delete(tasks).where(eq(tasks.parentTaskId, id));
+    await tx.delete(tasks).where(eq(tasks.id, id));
+  });
 }
 
 export async function deleteTasks(ids: number[]) {
@@ -453,9 +415,8 @@ export async function createFolder(data: InsertFolder & { appUserId?: number | n
   const result = await db.insert(folders).values({
     ...data,
     appUserId: data.appUserId ?? null,
-  });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const insertId = (result as any)[0]?.insertId;
+  }) as unknown as [ResultSetHeader, unknown];
+  const insertId = getInsertId(result);
   if (!insertId) return null;
   const rows = await db.select().from(folders).where(eq(folders.id, insertId)).limit(1);
   return rows[0] ?? null;
@@ -467,22 +428,16 @@ export async function updateFolder(
 ) {
   const db = await getDb();
   if (!db) return;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await db.update(folders).set(data as any).where(eq(folders.id, id));
+  await db.update(folders).set(data).where(eq(folders.id, id));
 }
 
 export async function deleteFolder(id: number) {
   const db = await getDb();
   if (!db) return;
-  // Unlink tasks from this folder
-  await db.update(tasks).set({ folderId: null }).where(eq(tasks.folderId, id));
-  await db.delete(folders).where(eq(folders.id, id));
-}
-
-export async function moveTaskToFolder(taskId: number, folderId: number | null) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(tasks).set({ folderId }).where(eq(tasks.id, taskId));
+  await db.transaction(async (tx) => {
+    await tx.update(tasks).set({ folderId: null }).where(eq(tasks.folderId, id));
+    await tx.delete(folders).where(eq(folders.id, id));
+  });
 }
 
 // ─── Notes (user-scoped) ─────────────────────────────────────────────────────
@@ -511,9 +466,8 @@ export async function createNote(data: InsertNote & { appUserId?: number | null 
   const result = await db.insert(notes).values({
     ...data,
     appUserId: data.appUserId ?? null,
-  });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const insertId = (result as any)[0]?.insertId;
+  }) as unknown as [ResultSetHeader, unknown];
+  const insertId = getInsertId(result);
   if (!insertId) return null;
   return getNoteById(insertId);
 }
@@ -524,8 +478,7 @@ export async function updateNote(
 ) {
   const db = await getDb();
   if (!db) return;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await db.update(notes).set(data as any).where(eq(notes.id, id));
+  await db.update(notes).set(data).where(eq(notes.id, id));
 }
 
 export async function deleteNote(id: number) {
@@ -573,9 +526,8 @@ export async function createProject(data: {
     dueDate: data.dueDate ?? null,
     sortOrder: data.sortOrder ?? 0,
     appUserId: data.appUserId ?? null,
-  });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const insertId = (result as any)[0]?.insertId;
+  }) as unknown as [ResultSetHeader, unknown];
+  const insertId = getInsertId(result);
   if (!insertId) return null;
   return getProjectById(insertId);
 }
@@ -593,17 +545,18 @@ export async function updateProject(
 ) {
   const db = await getDb();
   if (!db) return;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await db.update(projects).set(data as any).where(eq(projects.id, id));
+  await db.update(projects).set(data).where(eq(projects.id, id));
 }
 
 export async function deleteProject(id: number) {
   const db = await getDb();
   if (!db) return;
-  // Unlink tasks and notes from this project
-  await db.update(tasks).set({ projectId: null }).where(eq(tasks.projectId, id));
-  await db.update(notes).set({ projectId: null }).where(eq(notes.projectId, id));
-  await db.delete(projects).where(eq(projects.id, id));
+  await db.transaction(async (tx) => {
+    await tx.update(tasks).set({ projectId: null }).where(eq(tasks.projectId, id));
+    await tx.update(notes).set({ projectId: null }).where(eq(notes.projectId, id));
+    await tx.delete(kpis).where(eq(kpis.projectId, id));
+    await tx.delete(projects).where(eq(projects.id, id));
+  });
 }
 
 export async function getProjectProgress(projectId: number) {
@@ -670,8 +623,8 @@ export async function getKpisByProject(projectId: number) {
 export async function createKpi(data: InsertKpi) {
   const db = await getDb();
   if (!db) return null;
-  const [result] = await db.insert(kpis).values(data);
-  const id = (result as { insertId: number }).insertId;
+  const result = await db.insert(kpis).values(data) as unknown as [ResultSetHeader, unknown];
+  const id = getInsertId(result);
   const [row] = await db.select().from(kpis).where(eq(kpis.id, id));
   return row ?? null;
 }
@@ -759,23 +712,25 @@ export async function linkLineUserToAppUser(lineUserId: string, appUserId: numbe
   const db = await getDb();
   if (!db) return;
 
-  // Update the line_users table
-  await db
-    .update(lineUsers)
-    .set({ appUserId })
-    .where(eq(lineUsers.lineUserId, lineUserId));
+  await db.transaction(async (tx) => {
+    // Update the line_users table
+    await tx
+      .update(lineUsers)
+      .set({ appUserId })
+      .where(eq(lineUsers.lineUserId, lineUserId));
 
-  // Backfill: set appUserId on existing tasks created by this LINE user
-  await db
-    .update(tasks)
-    .set({ appUserId })
-    .where(and(eq(tasks.lineUserId, lineUserId), isNull(tasks.appUserId)));
+    // Backfill: set appUserId on existing tasks created by this LINE user
+    await tx
+      .update(tasks)
+      .set({ appUserId })
+      .where(and(eq(tasks.lineUserId, lineUserId), isNull(tasks.appUserId)));
 
-  // Backfill: set appUserId on existing notes created by this LINE user
-  await db
-    .update(notes)
-    .set({ appUserId })
-    .where(and(eq(notes.sourceLineUserId, lineUserId), isNull(notes.appUserId)));
+    // Backfill: set appUserId on existing notes created by this LINE user
+    await tx
+      .update(notes)
+      .set({ appUserId })
+      .where(and(eq(notes.sourceLineUserId, lineUserId), isNull(notes.appUserId)));
+  });
 }
 
 /**

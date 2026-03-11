@@ -499,6 +499,10 @@ export default function Tasks() {
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [renamingFolderId, setRenamingFolderId] = useState<number | null>(null);
+  const [renameFolderName, setRenameFolderName] = useState("");
 
   const utils = trpc.useUtils();
 
@@ -513,6 +517,15 @@ export default function Tasks() {
   });
   const deleteFolderMut = trpc.folders.delete.useMutation({
     onSuccess: () => { refetchFolders(); utils.tasks.list.invalidate(); },
+  });
+  const updateFolderMut = trpc.folders.update.useMutation({
+    onSuccess: () => {
+      refetchFolders();
+      setRenamingFolderId(null);
+      setRenameFolderName("");
+      toast.success("フォルダー名を変更しました");
+    },
+    onError: () => toast.error("フォルダー名の変更に失敗しました"),
   });
 
   const { data: rawTasks = [], isLoading, refetch } = trpc.tasks.list.useQuery(
@@ -577,6 +590,26 @@ export default function Tasks() {
     },
     onError: () => toast.error("削除に失敗しました"),
   });
+
+  const createMut = trpc.tasks.create.useMutation({
+    onSuccess: () => {
+      utils.tasks.list.invalidate();
+      utils.tasks.stats.invalidate();
+      setNewTaskTitle("");
+      setLocalOrder(null);
+      toast.success("タスクを追加しました");
+    },
+    onError: () => toast.error("追加に失敗しました"),
+  });
+
+  const handleAddTask = () => {
+    const title = newTaskTitle.trim();
+    if (!title) return;
+    createMut.mutate({
+      title,
+      folderId: selectedFolderId !== "all" ? selectedFolderId : null,
+    });
+  };
 
   const reorderMut = trpc.tasks.reorder.useMutation();
 
@@ -758,29 +791,52 @@ export default function Tasks() {
             </button>
             {(folders as FolderItem[]).map((folder) => (
               <div key={folder.id} className="group relative">
-                <button
-                  onClick={() => setSelectedFolderId(folder.id)}
-                  className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium transition-all ${
-                    selectedFolderId === folder.id ? "bg-violet-500 text-white shadow-sm" : "text-slate-600 hover:bg-white/60"
-                  }`}
-                >
-                  <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate flex-1 text-left">{folder.name}</span>
+                {renamingFolderId === folder.id ? (
+                  <div className="flex gap-1 px-1 py-1">
+                    <input
+                      autoFocus
+                      className="flex-1 min-w-0 px-2 py-1 rounded-lg text-xs border border-violet-300 bg-white/70 text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-300"
+                      value={renameFolderName}
+                      onChange={(e) => setRenameFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && renameFolderName.trim()) {
+                          updateFolderMut.mutate({ id: folder.id, name: renameFolderName.trim() });
+                        }
+                        if (e.key === "Escape") setRenamingFolderId(null);
+                      }}
+                      onBlur={() => setRenamingFolderId(null)}
+                    />
+                  </div>
+                ) : (
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm(`「${folder.name}」を削除しますか？`)) {
-                        deleteFolderMut.mutate({ id: folder.id });
-                        if (selectedFolderId === folder.id) setSelectedFolderId("all");
-                      }
+                    onClick={() => setSelectedFolderId(folder.id)}
+                    onDoubleClick={(e) => {
+                      e.preventDefault();
+                      setRenamingFolderId(folder.id);
+                      setRenameFolderName(folder.name);
                     }}
-                    className={`opacity-0 group-hover:opacity-100 p-0.5 rounded transition-all ${
-                      selectedFolderId === folder.id ? "text-white/70 hover:text-white" : "text-slate-400 hover:text-rose-500"
+                    className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium transition-all ${
+                      selectedFolderId === folder.id ? "bg-violet-500 text-white shadow-sm" : "text-slate-600 hover:bg-white/60"
                     }`}
                   >
-                    <XIcon className="h-3 w-3" />
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate flex-1 text-left">{folder.name}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`「${folder.name}」を削除しますか？`)) {
+                          deleteFolderMut.mutate({ id: folder.id });
+                          if (selectedFolderId === folder.id) setSelectedFolderId("all");
+                        }
+                      }}
+                      className={`opacity-0 group-hover:opacity-100 p-0.5 rounded transition-all ${
+                        selectedFolderId === folder.id ? "text-white/70 hover:text-white" : "text-slate-400 hover:text-rose-500"
+                      }`}
+                    >
+                      <XIcon className="h-3 w-3" />
+                    </button>
                   </button>
-                </button>
+                )}
               </div>
             ))}
           </div>
@@ -877,6 +933,13 @@ export default function Tasks() {
             ) : (
               <>
                 <button
+                  onClick={() => setShowAddTask((v) => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white transition-all"
+                  style={{ background: "linear-gradient(135deg, oklch(0.58 0.20 275), oklch(0.65 0.17 225))" }}
+                >
+                  <Plus className="h-3.5 w-3.5" />追加
+                </button>
+                <button
                   onClick={() => setIsSelectMode(true)}
                   className="px-3 py-1.5 rounded-xl text-xs font-medium border border-slate-200 bg-white/60 text-slate-600 hover:bg-white/80 transition-all"
                 >
@@ -966,6 +1029,37 @@ export default function Tasks() {
           )}
         </div>
 
+        {/* Add Task Inline */}
+        {showAddTask && (
+          <div className="glass-card p-3">
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                className="flex-1 px-3 py-2 rounded-xl text-sm border border-slate-200 bg-white/70 text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-300"
+                placeholder="タスクのタイトルを入力..."
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.nativeEvent.isComposing) handleAddTask();
+                  if (e.key === "Escape") { setShowAddTask(false); setNewTaskTitle(""); }
+                }}
+                disabled={createMut.isPending}
+              />
+              <button
+                onClick={handleAddTask}
+                disabled={!newTaskTitle.trim() || createMut.isPending}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-all"
+                style={{ background: "linear-gradient(135deg, oklch(0.58 0.20 275), oklch(0.65 0.17 225))" }}
+              >
+                {createMut.isPending ? "追加中..." : "追加"}
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1.5 ml-1">
+              Enterで追加 / 優先度・カテゴリ等は追加後に編集できます
+            </p>
+          </div>
+        )}
+
         {/* Task List */}
         {isLoading ? (
           <div className="glass-card p-8 text-center">
@@ -976,7 +1070,7 @@ export default function Tasks() {
           <div className="glass-card p-10 text-center">
             <div className="text-4xl mb-3">✅</div>
             <p className="text-sm font-semibold text-slate-600">タスクはありません</p>
-            <p className="text-xs text-slate-400 mt-1">LINEでメッセージを送るとタスクが追加されます</p>
+            <p className="text-xs text-slate-400 mt-1">上の「追加」ボタンまたはLINEからタスクを追加できます</p>
           </div>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

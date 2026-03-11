@@ -10,6 +10,7 @@ import {
   Clock,
   FileText,
   Loader2,
+  Pencil,
   Plus,
   Square,
   Sparkles,
@@ -217,11 +218,28 @@ export default function Notes() {
     },
   });
 
+  const updateMutation = trpc.notes.update.useMutation({
+    onSuccess: () => {
+      toast.success("メモを更新しました");
+      refetch().then((res) => {
+        if (selectedNote && res.data) {
+          const updated = res.data.find((n) => n.id === selectedNote.id);
+          if (updated) setSelectedNote(updated);
+        }
+      });
+      setIsEditing(false);
+    },
+    onError: () => toast.error("更新に失敗しました"),
+  });
+
   const [mode, setMode] = useState<"list" | "new" | "preview" | "detail">("list");
   const [rawText, setRawText] = useState("");
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [selectedTaskIndices, setSelectedTaskIndices] = useState<number[]>([]);
   const [selectedNote, setSelectedNote] = useState<(typeof notes)[0] | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editText, setEditText] = useState("");
 
   // Refresh selected note from list when updated
   function refreshSelectedNote() {
@@ -423,47 +441,107 @@ export default function Notes() {
         {mode === "detail" && selectedNote && (
           <div className="space-y-4">
             <div className="glass-card rounded-2xl p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-slate-800">{selectedNote.title}</h2>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400">
-                    {new Date(selectedNote.createdAt).toLocaleDateString("ja-JP")}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      deleteMutation.mutate({ id: selectedNote.id });
-                      setMode("list");
-                    }}
-                    className="h-7 w-7 p-0 text-rose-400 hover:text-rose-600 hover:bg-rose-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-              {Array.isArray(selectedNote.tags) && (selectedNote.tags as string[]).length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {(selectedNote.tags as string[]).map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200"
+              {isEditing ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">タイトル</label>
+                    <input
+                      className="w-full px-3 py-2 rounded-xl text-sm border border-slate-200 bg-white/70 text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-300"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">本文（Markdown）</label>
+                    <Textarea
+                      className="min-h-[200px] bg-white/60 border-slate-200 text-slate-700 resize-none focus:border-violet-400 focus:ring-violet-400/20"
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsEditing(false)}
+                      className="text-slate-500 hover:text-slate-700"
                     >
-                      <Tag className="h-2.5 w-2.5" />
-                      {tag}
-                    </span>
-                  ))}
-                </div>
+                      キャンセル
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        updateMutation.mutate({
+                          id: selectedNote.id,
+                          title: editTitle,
+                          formattedText: editText,
+                        });
+                      }}
+                      disabled={updateMutation.isPending}
+                      className="gap-1.5 gradient-btn text-white border-0"
+                    >
+                      {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      保存
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-bold text-slate-800">{selectedNote.title}</h2>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400">
+                        {new Date(selectedNote.createdAt).toLocaleDateString("ja-JP")}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEditTitle(selectedNote.title);
+                          setEditText(selectedNote.formattedText);
+                          setIsEditing(true);
+                        }}
+                        className="h-7 w-7 p-0 text-slate-400 hover:text-violet-600 hover:bg-violet-50"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          deleteMutation.mutate({ id: selectedNote.id });
+                          setMode("list");
+                        }}
+                        className="h-7 w-7 p-0 text-rose-400 hover:text-rose-600 hover:bg-rose-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  {Array.isArray(selectedNote.tags) && (selectedNote.tags as string[]).length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {(selectedNote.tags as string[]).map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200"
+                        >
+                          <Tag className="h-2.5 w-2.5" />
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="prose prose-slate prose-sm max-w-none text-slate-700 leading-relaxed">
+                    <Streamdown>{selectedNote.formattedText}</Streamdown>
+                  </div>
+                  {Array.isArray(selectedNote.extractedTaskIds) &&
+                    (selectedNote.extractedTaskIds as number[]).length > 0 && (
+                      <p className="text-xs text-slate-400 border-t border-slate-100 pt-3">
+                        ✅ タスク {(selectedNote.extractedTaskIds as number[]).length} 件を登録済み
+                      </p>
+                    )}
+                </>
               )}
-              <div className="prose prose-slate prose-sm max-w-none text-slate-700 leading-relaxed">
-                <Streamdown>{selectedNote.formattedText}</Streamdown>
-              </div>
-              {Array.isArray(selectedNote.extractedTaskIds) &&
-                (selectedNote.extractedTaskIds as number[]).length > 0 && (
-                  <p className="text-xs text-slate-400 border-t border-slate-100 pt-3">
-                    ✅ タスク {(selectedNote.extractedTaskIds as number[]).length} 件を登録済み
-                  </p>
-                )}
             </div>
 
             {/* Task candidates section */}

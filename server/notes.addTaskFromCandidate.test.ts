@@ -17,9 +17,19 @@ vi.mock("./db", () => ({
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 
-function createPublicCtx(): TrpcContext {
+function createAuthenticatedCtx(): TrpcContext {
   return {
-    user: null,
+    user: {
+      id: 1,
+      openId: "google:test-user",
+      name: "Test User",
+      email: "test@example.com",
+      loginMethod: "google",
+      role: "user",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    },
     req: { protocol: "https", headers: {} } as TrpcContext["req"],
     res: {} as TrpcContext["res"],
   };
@@ -34,6 +44,7 @@ describe("notes.addTaskFromCandidate", () => {
     const fakeTask = { id: 42, title: "テスト候補タスク", priority: "P2", category: "仕事" };
     const fakeNote = {
       id: 1,
+      appUserId: 1,
       taskCandidates: [
         { title: "テスト候補タスク", priority: "P2", category: "仕事" },
         { title: "別の候補", priority: "P3", category: "個人" },
@@ -45,7 +56,7 @@ describe("notes.addTaskFromCandidate", () => {
     mockGetNoteById.mockResolvedValue(fakeNote);
     mockUpdateNote.mockResolvedValue(undefined);
 
-    const caller = appRouter.createCaller(createPublicCtx());
+    const caller = appRouter.createCaller(createAuthenticatedCtx());
     const result = await caller.notes.addTaskFromCandidate({
       noteId: 1,
       candidateIndex: 0,
@@ -63,6 +74,7 @@ describe("notes.addTaskFromCandidate", () => {
       priority: "P2",
       category: "仕事",
       lineUserId: "web",
+      appUserId: 1,
     });
 
     // updateNote removes index 0 and appends taskId
@@ -75,7 +87,7 @@ describe("notes.addTaskFromCandidate", () => {
   it("throws when createTask returns null", async () => {
     mockCreateTask.mockResolvedValue(null);
 
-    const caller = appRouter.createCaller(createPublicCtx());
+    const caller = appRouter.createCaller(createAuthenticatedCtx());
     await expect(
       caller.notes.addTaskFromCandidate({
         noteId: 1,
